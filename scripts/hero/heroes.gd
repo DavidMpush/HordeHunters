@@ -31,7 +31,7 @@ const HEROES := {
 		"text": "Zwei Schuss, dann Nachladen. Ein Fächer aus Schrot wirft leichte Gegner um.",
 	},
 	"boxer": {
-		"name": "Rocco",
+		"name": "Brine",
 		"title": "Der Straßenboxer",
 		"weapon": "fists",
 		"weapon_name": "Fäuste",

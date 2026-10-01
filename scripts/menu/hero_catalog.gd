@@ -4,7 +4,7 @@ extends RefCounted
 # (Teil B's catalogue, HEROES / ORDER) defensively and fills gaps from
 # FALLBACK, so the menu works even while the catalogue is missing or partial.
 # Portraits are cropped concept-art copies under assets/heroes/ (Brann from the
-# V2 roster, Rocco from the boxer app icon). Also draws round portraits and the
+# V2 roster, Brine from the boxer app icon). Also draws round portraits and the
 # "BALD" silhouettes of heroes that are not playable yet.
 
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
@@ -17,7 +17,7 @@ const FALLBACK := {
 	"brann": {"name": "Brann", "title": "Der Schrotflinten-Koch", "weapon": "shotgun", "weapon_name": "Schrotflinte",
 		"hp": 100.0, "armor": 0.0, "text": "Zwei Schuss, dann Nachladen. Ein Fächer aus Schrot wirft leichte Gegner um.",
 		"color": Color("ef6a22")},
-	"boxer": {"name": "Rocco", "title": "Der Straßenboxer", "weapon": "fists", "weapon_name": "Fäuste",
+	"boxer": {"name": "Brine", "title": "Der Straßenboxer", "weapon": "fists", "weapon_name": "Fäuste",
 		"hp": 130.0, "armor": 0.1, "text": "Links, rechts, Aufwärtshaken. Muss nah ran, hält dafür mehr aus.",
 		"color": Color("d8382e")},
 }

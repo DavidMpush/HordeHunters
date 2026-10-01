@@ -1,6 +1,13 @@
 extends Node3D
 
-# Placeholder Rocco, the boxer (V5 concept 01_unarmed_boxer, V2 toon look):
+# Brine, the boxer (V5 concept 01_unarmed_boxer, V2 toon look). With the
+# delivered rig (assets/heroes/brine/brine_rig.scn, built by
+# tools/build_rigged_hero.gd from Konzepte und Ideen/Brine Rig.fbx and the
+# animation FBX files) the skinned model is shown and posed bone by bone:
+# the guard and the strikes are sampled from the "double_punch" clip (guard
+# at 0 s, left hit 0.35 s, right hit 0.6 s), running legs, aim twist, lean,
+# head snap and bob are added procedurally. The primitive placeholder below
+# still runs invisibly (same timing curves). Without the rig it is shown:
 # broad, heavy-shouldered brawler, red sleeveless hoodie over a black tank
 # top, green shorts with cream trim, black/cream boots, huge bandaged fists,
 # dark spiky hair with a grey streak, stubble beard. Built from primitives and
@@ -17,6 +24,21 @@ extends Node3D
 # The model faces local +Z.
 
 const TOON := preload("res://shaders/toon_part.gdshader")
+const TEXTURED := preload("res://shaders/hero_textured.gdshader")
+const RIG_SCENE := "res://assets/heroes/brine/brine_rig.scn"
+const RIG_TEXTURE := "res://assets/heroes/brine/brine_albedo.png"
+## Rig height (sole to hair, m) and the height it gets in model units
+## (matches the placeholder).
+const RIG_HEIGHT := 1.763
+const BODY_HEIGHT := 2.15
+const CLIP := "double_punch"
+const GUARD_TIME := 0.0
+## Strike segments in the clip per side: [start of wind-up, hit frame].
+const CLIP_LEFT := [0.15, 0.35]
+const CLIP_RIGHT := [0.42, 0.6]
+## Rig axes in skeleton space (the armature is Z-up, faces -Y).
+const RIG_SIDE := Vector3(1, 0, 0)
+const RIG_UP := Vector3(0, 0, 1)
 
 const SCALE := 1.35
 const SKIN := Color("c27a48")
@@ -55,6 +77,14 @@ var shoulders: Array[Node3D] = []
 var elbows: Array[Node3D] = []
 var fists: Array[Node3D] = []
 var _parts: Array[GeometryInstance3D] = []
+## Skinned rig (null: primitive placeholder visible).
+var body: Node3D
+var _skeleton: Skeleton3D
+var _clip: Animation
+## Animated bones: [bone index, rotation track of the clip].
+var _clip_bones: Array = []
+var _bone := {}
+var _rig_mesh: MeshInstance3D
 var _materials := {}
 
 # Animation state (driven by hero.gd and fists.gd)
@@ -163,6 +193,48 @@ func build() -> void:
 		fists.append(fist)
 	for item in _parts:
 		item.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	_build_body()
+
+
+## Skinned rig over the invisible placeholder (when the rig exists).
+func _build_body() -> void:
+	if not ResourceLoader.exists(RIG_SCENE) or not ResourceLoader.exists(RIG_TEXTURE):
+		return
+	body = (load(RIG_SCENE) as PackedScene).instantiate()
+	body.name = "Rig"
+	body.scale = Vector3.ONE * (BODY_HEIGHT / RIG_HEIGHT)
+	add_child(body)
+	_skeleton = body.find_child("Skeleton3D", true, false) as Skeleton3D
+	_rig_mesh = body.find_child("*Mesh*", true, false) as MeshInstance3D
+	var player := body.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if _skeleton == null or _rig_mesh == null or player == null or not player.has_animation(CLIP):
+		body.queue_free()
+		body = null
+		return
+	# The pose is set bone by bone below; the player only carries the clips.
+	_clip = player.get_animation(CLIP)
+	player.queue_free()
+	for track in _clip.get_track_count():
+		if _clip.track_get_type(track) != Animation.TYPE_ROTATION_3D:
+			continue
+		var bone := _skeleton.find_bone(String(_clip.track_get_path(track).get_concatenated_subnames()))
+		if bone >= 0:
+			_clip_bones.append([bone, track])
+	for bone_name in ["Hips", "Spine", "Spine1", "Spine2", "Head", "LeftHand", "RightHand", "LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg"]:
+		_bone[bone_name] = _skeleton.find_bone(bone_name)
+	var material := ShaderMaterial.new()
+	material.shader = TEXTURED
+	material.set_shader_parameter("albedo_texture", load(RIG_TEXTURE))
+	material.set_shader_parameter("brightness", 1.08)
+	material.set_shader_parameter("saturation", 1.1)
+	material.set_shader_parameter("shape_light", 0.3)
+	material.set_shader_parameter("rim_color", Color("ffd9a0"))
+	material.set_shader_parameter("rim_strength", 0.45)
+	material.set_shader_parameter("rim_power", 3.0)
+	_rig_mesh.material_override = material
+	_rig_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	for item in _parts:
+		item.visible = false
 
 
 func snap_aim(yaw: float) -> void:
@@ -191,6 +263,9 @@ func punch(step: int) -> void:
 
 ## World position of a fist (0 left, 1 right) - effects and tests.
 func fist_position(side: int) -> Vector3:
+	if body != null and is_inside_tree():
+		var hand: int = _bone["LeftHand" if side == 0 else "RightHand"]
+		return _skeleton.global_transform * _skeleton.get_bone_global_pose(hand).origin
 	return fists[clampi(side, 0, 1)].global_position
 
 
@@ -302,10 +377,60 @@ func animate(delta: float) -> void:
 		# The striking fist swells a little (reads as impact from far away).
 		var pop := 1.0 + 0.25 * arm_e
 		fists[side].scale = Vector3.ONE * pop
+	if body != null:
+		_animate_rig(swing, bob + lift - squat, lean, squat)
 	# Death: stagger back and tip over.
 	rotation.x = -dead * PI * 0.48
 	position.y = dead * 0.25
 	_apply_flash()
+
+
+## Poses the skinned rig: clip guard blended toward the strike segment of the
+## active side, then running legs, torso twist toward the aim, lean and the
+## head snap on top. Strikes: 0 jab and 2 uppercut use the left segment,
+## 1 cross and 3 Hammerfaust the right one (until own clips arrive).
+func _animate_rig(swing: float, rise: float, lean: float, squat: float) -> void:
+	var clip_time := GUARD_TIME
+	var blend := 0.0
+	if punch_step >= 0 and punch_time < PUNCH_LIFE:
+		var segment: Array = CLIP_LEFT if punch_step % 2 == 0 else CLIP_RIGHT
+		clip_time = lerpf(segment[1] - 0.08, segment[1], _ramp(punch_time, 0.0, 0.035)) + maxf(0.0, punch_time - 0.035) * 0.4
+		blend = 1.0 - _ramp(punch_time, 0.07, PUNCH_LIFE)
+	elif wind > 0.0 and wind_step >= 0:
+		var segment: Array = CLIP_LEFT if wind_step % 2 == 0 else CLIP_RIGHT
+		clip_time = lerpf(segment[0], segment[1] - 0.08, wind)
+		blend = wind
+	for entry in _clip_bones:
+		var track: int = entry[1]
+		var q := _clip.rotation_track_interpolate(track, GUARD_TIME)
+		if blend > 0.0:
+			q = q.slerp(_clip.rotation_track_interpolate(track, clip_time), blend)
+		_skeleton.set_bone_pose_rotation(entry[0], q)
+	# Legs: swing from the hip, the knee bends while the foot is behind.
+	_turn("LeftUpLeg", RIG_SIDE, swing)
+	_turn("RightUpLeg", RIG_SIDE, -swing)
+	var knee := 0.25 * move_amount
+	_turn("LeftLeg", RIG_SIDE, maxf(0.0, swing) * 1.1 + knee)
+	_turn("RightLeg", RIG_SIDE, maxf(0.0, -swing) * 1.1 + knee)
+	# Body faces the legs; the spine twists toward the aim and leans.
+	body.rotation.y = hips.rotation.y
+	body.position.y = maxf(rise, -0.25)
+	var spine_twist := wrapf(torso.rotation.y - hips.rotation.y, -PI, PI)
+	var rest := _skeleton.get_bone_rest(_bone["Spine1"]).basis.get_rotation_quaternion()
+	_skeleton.set_bone_pose_rotation(_bone["Spine1"], rest)
+	_turn("Spine1", RIG_UP, spine_twist)
+	_turn("Spine1", RIG_SIDE, lean * 0.5 + squat * 0.5)
+	_turn("Head", RIG_SIDE, -hurt * 0.5)
+
+
+## Rotates bone `bone_name` about a skeleton-space axis (approximated in the
+## bone's rest frame, fine for the small procedural angles).
+func _turn(bone_name: String, axis: Vector3, angle: float) -> void:
+	if absf(angle) < 0.0001:
+		return
+	var bone: int = _bone[bone_name]
+	var local := (_skeleton.get_bone_global_rest(bone).basis.orthonormalized().inverse() * axis).normalized()
+	_skeleton.set_bone_pose_rotation(bone, _skeleton.get_bone_pose_rotation(bone) * Quaternion(local, angle))
 
 
 func _arm_of(step: int, side: int) -> bool:
@@ -318,6 +443,9 @@ func _arm_of(step: int, side: int) -> bool:
 
 
 func _apply_flash() -> void:
+	if body != null:
+		_rig_mesh.set_instance_shader_parameter("hit_flash", hurt)
+		return
 	for item in _parts:
 		item.set_instance_shader_parameter("hit_flash", hurt)
 

@@ -4,7 +4,7 @@ extends Node3D
 # after a hit, death. Carries the placeholder model; the weapons
 # (scripts/weapons/*) are wired up by battle.gd. Everything runs in step(),
 # called by battle.gd (tests call it directly).
-# Stage 3: which hero (Brann, Rocco the boxer) comes from the catalogue
+# Stage 3: which hero (Brann, Brine the boxer) comes from the catalogue
 # scripts/hero/heroes.gd: apply_hero(id) sets name, base health, base armor,
 # speed and builds the model; _ready() takes the menu's choice
 # (heroes.current_id(), default Brann) unless hero_id was set before.

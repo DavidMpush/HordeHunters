@@ -1,7 +1,7 @@
 extends SceneTree
 
 # Title menu (stage 3, Teil A §1, §5): menu.tscn is the main scene and loads
-# with key art and logo; the hero card opens the hero choice, Rocco can be
+# with key art and logo; the hero card opens the hero choice, Brine can be
 # chosen (silhouette tiles cannot), settings toggles and sliders work and
 # drive the buses, the statistics sheet opens, Esc returns; SPIELEN starts
 # main.tscn with the chosen hero and seed through Session.config.
@@ -44,14 +44,14 @@ func _run() -> void:
 	check(menu.screen == "heroes" and menu.sheets.heroes.visible, "hero card opens the hero choice")
 	var sheet: Control = menu.sheets.heroes
 	var tiles: Array = sheet.tiles()
-	check(tiles.has("brann") and tiles.has("boxer"), "Brann and Rocco listed (%s)" % str(tiles))
+	check(tiles.has("brann") and tiles.has("boxer"), "Brann and Brine listed (%s)" % str(tiles))
 	var coming := -1
 	for index in tiles.size():
 		if String(tiles[index]).begins_with("coming:"):
 			coming = index
 	check(coming >= 0, "upcoming heroes as BALD tiles")
 	sheet.tap(sheet.tile_rect(tiles.find("boxer")).get_center())
-	check(menu.hero_id() == "boxer" and SESSION.profile().hero_id == "boxer", "Rocco chosen")
+	check(menu.hero_id() == "boxer" and SESSION.profile().hero_id == "boxer", "Brine chosen")
 	if coming >= 0:
 		sheet.tap(sheet.tile_rect(coming).get_center())
 		check(menu.hero_id() == "boxer", "a BALD tile cannot be chosen")
@@ -90,7 +90,7 @@ func _run() -> void:
 	await process_frame
 	menu._key(KEY_ESCAPE)
 	check(menu.screen == "title", "Esc closes the statistics")
-	# SPIELEN -> main.tscn with Rocco and the seed.
+	# SPIELEN -> main.tscn with Brine and the seed.
 	menu.fixed_seed = 777
 	menu.tap(menu.play_rect().get_center())
 	check(menu.starting, "SPIELEN starts")
@@ -109,7 +109,7 @@ func _run() -> void:
 		var battle: Node = main.get_node_or_null("Battle")
 		check(battle != null and battle.hero != null, "the run has a hero")
 		if battle != null and battle.hero != null and battle.hero.get("hero_id") != null:
-			check(String(battle.hero.hero_id) == "boxer", "the run's hero is Rocco (%s)" % String(battle.hero.hero_id))
+			check(String(battle.hero.hero_id) == "boxer", "the run's hero is Brine (%s)" % String(battle.hero.hero_id))
 		check(main.get_node_or_null("Battle/HUD/Pause") != null, "pause screen in the run")
 	SESSION.config = {}
 	SESSION.reload_profile()

@@ -52,7 +52,7 @@ func _catalogue() -> void:
 			check(data.has(key), "hero %s has %s" % [id, key])
 		check(ResourceLoader.exists(String(data.model_script)), "model script of %s exists" % id)
 		check(PROGRESS.WEAPONS.has(String(data.weapon)), "weapon of %s is in the catalogue" % id)
-	check(String(HEROES.get_hero("boxer").name) == "Rocco" and float(HEROES.get_hero("boxer").hp) == 130.0 and is_equal_approx(float(HEROES.get_hero("boxer").armor), 0.1), "Rocco: 130 LP, 10 % armor")
+	check(String(HEROES.get_hero("boxer").name) == "Brine" and float(HEROES.get_hero("boxer").hp) == 130.0 and is_equal_approx(float(HEROES.get_hero("boxer").armor), 0.1), "Brine: 130 LP, 10 % armor")
 	check(String(HEROES.get_hero("nobody").name) == "Brann", "unknown id falls back to Brann")
 	# Session config (static class of Teil A, read dynamically with fallbacks).
 	var session: Variant = load(HEROES.SESSION_PATH) if ResourceLoader.exists(HEROES.SESSION_PATH) else null

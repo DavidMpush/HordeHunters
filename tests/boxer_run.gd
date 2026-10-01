@@ -1,7 +1,7 @@
 extends SceneTree
 
 # A boxer run starts (stage 3, Teil B §3 + §5): Session.config.hero_id =
-# "boxer" before main.tscn loads -> Rocco with the boxer model, 130 LP, the
+# "boxer" before main.tscn loads -> Brine with the boxer model, 130 LP, the
 # fists as own weapon and build start; 40 s of a real fight (director on,
 # every level-up takes the first card) deal fists damage and kill; NOCHMAL
 # keeps the hero. The config is restored at the end.
@@ -38,8 +38,8 @@ func _run() -> void:
 	if session == null:
 		battle.set_hero("boxer")
 	var hero: Node3D = battle.hero
-	check(hero.hero_id == "boxer", "Rocco from the run config (%s)" % hero.hero_id)
-	check(hero.model.get_script() == load("res://scripts/hero/boxer_model.gd") and hero.model.name == "Rocco", "boxer model")
+	check(hero.hero_id == "boxer", "Brine from the run config (%s)" % hero.hero_id)
+	check(hero.model.get_script() == load("res://scripts/hero/boxer_model.gd") and hero.model.name == "Brine", "boxer model")
 	check(is_equal_approx(hero.max_health, 130.0) and is_equal_approx(hero.health, 130.0), "130 LP")
 	check(String(battle.shotgun.id) == "fists" and battle.weapons.size() == 1, "fists as own weapon")
 	check(battle.progress.weapons == ["fists"] and battle.progress.start_weapon == "fists", "build starts with the fists")
@@ -59,9 +59,9 @@ func _run() -> void:
 	check(not battle.run.damage_by_source.has("Schrotflinte"), "no shotgun damage on the boxer")
 	check(battle.shotgun.strikes > 10, "many strikes (%d)" % battle.shotgun.strikes)
 	var summary := "kills %d, level %d, Fäuste %.0f dmg" % [battle.run.kills, battle.run.level, float(battle.run.damage_by_source.get("Fäuste", 0.0))]
-	# NOCHMAL keeps Rocco and his numbers.
+	# NOCHMAL keeps Brine and his numbers.
 	battle.restart()
-	check(hero.hero_id == "boxer" and is_equal_approx(hero.max_health, 130.0) and String(battle.shotgun.id) == "fists", "NOCHMAL: still Rocco")
+	check(hero.hero_id == "boxer" and is_equal_approx(hero.max_health, 130.0) and String(battle.shotgun.id) == "fists", "NOCHMAL: still Brine")
 	if session != null:
 		session.config = keep
 	if failures.is_empty():

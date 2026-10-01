@@ -24,3 +24,8 @@ assets/source/*/*_texture_*.png.import
 
 __pycache__/
 build/
+
+# Große 3D-Originale aus Tencent/Hunyuan (je ~35 MB) bleiben lokal in
+# "Konzepte und Ideen"; die Spielversionen unter assets/heroes/ sind versioniert.
+/Konzepte und Ideen/*.glb
+/Konzepte und Ideen/*.fbx

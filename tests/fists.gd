@@ -1,6 +1,6 @@
 extends SceneTree
 
-# Fists of Rocco the boxer (stage 3, Teil B §3): auto-target within 2.2 m,
+# Fists of Brine the boxer (stage 3, Teil B §3): auto-target within 2.2 m,
 # combo cycle jab -> cross -> uppercut, arcs (+-50 deg, uppercut wider),
 # knockback by mass (uppercut moves medium enemies, bosses never), the 3-frame
 # hitstop on a landed uppercut, the track (wider arcs, faster combo, shockwave,
@@ -69,7 +69,7 @@ func _spawn(kind: int, at: Vector3, hp := 100000.0) -> int:
 
 
 func _hero_numbers() -> void:
-	check(hero.hero_id == "boxer" and hero.model.get_script() == load("res://scripts/hero/boxer_model.gd"), "Rocco with the boxer model")
+	check(hero.hero_id == "boxer" and hero.model.get_script() == load("res://scripts/hero/boxer_model.gd"), "Brine with the boxer model")
 	check(is_equal_approx(hero.max_health, 130.0) and is_equal_approx(hero.health, 130.0), "130 LP (%.0f)" % hero.max_health)
 	check(fists.get_script() == FISTS and battle.weapons.size() == 1 and String(battle.progress.start_weapon) == "fists", "fists are the own weapon")
 	var before: float = hero.health

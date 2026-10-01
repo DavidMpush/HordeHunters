@@ -2,7 +2,7 @@ extends SceneTree
 
 # Review frames of the stage 3 menu and pause (Teil A), 540 x 960 window:
 #   preview_menu_title.png     - logo over the key art, hero card, SPIELEN
-#   preview_menu_heroes.png    - hero choice (Rocco chosen, BALD tiles)
+#   preview_menu_heroes.png    - hero choice (Brine chosen, BALD tiles)
 #   preview_menu_settings.png  - volumes, vibration, damage numbers
 #   preview_menu_stats.png     - runs in total, best run per hero
 #   preview_menu_pause.png     - pause panel over a fight with a small build

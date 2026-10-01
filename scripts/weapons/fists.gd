@@ -1,6 +1,6 @@
 extends "res://scripts/weapons/weapon.gd"
 
-# Rocco's fists (stage 3, Teil B §3): melee auto-target and a 3-hit combo.
+# Brine's fists (stage 3, Teil B §3): melee auto-target and a 3-hit combo.
 #   target    nearest enemy whose body is within REACH (2.2 m x range_mult);
 #             the boxer turns to it (hero.aim_yaw, model snaps on the strike)
 #   combo     left jab -> right cross -> uppercut, then a short recovery.

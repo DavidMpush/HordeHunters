@@ -12,7 +12,7 @@ extends SceneTree
 #             nothing is close
 #   add "noup" to skip every level-up / cocoon choice (no upgrades),
 #   "seed=N" for another director/pressure seed, "limit=S" for the time limit
-#   (default 360 s; smart 600 s), "hero=boxer" for Rocco (stage 3).
+#   (default 360 s; smart 600 s), "hero=boxer" for Brine (stage 3).
 # Prints survival time, kills, hits, pressure events.
 # Godot --headless --audio-driver Dummy --script res://tests/balance_probe.gd -- smart noup
 

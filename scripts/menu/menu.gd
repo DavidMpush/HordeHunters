@@ -25,7 +25,7 @@ const STATS := preload("res://scripts/menu/stats_sheet.gd")
 const KEY_ART := "res://assets/branding/key_art_1200.png"
 const LOGO := "res://assets/branding/logo_900.png"
 ## Horizontal centre of the cover crop in the key art (share of its width):
-## Rocco and his companions, the logo of the art stays outside.
+## Brine and his companions, the logo of the art stays outside.
 const ART_FOCUS := 0.68
 const ART_PAN := 0.02
 const WEAPON_ICONS := {"shotgun": "shotgun", "fists": "burst"}

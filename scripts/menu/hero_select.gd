@@ -2,7 +2,7 @@ extends Control
 
 # Hero choice of the menu (stage 3, Teil A §1): the chosen hero large on top
 # (portrait, name, title, starting weapon, health, armor, short text), below a
-# grid of tiles: playable heroes (Brann, Rocco) and silhouettes of upcoming
+# grid of tiles: playable heroes (Brann, Brine) and silhouettes of upcoming
 # heroes with "BALD". Tapping a playable tile chooses it at once (saved in the
 # profile); FERTIG / Esc returns to the title.
 

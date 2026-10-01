@@ -1,8 +1,8 @@
 extends SceneTree
 
 # Review frames of stage 3 Teil B (heroes and the fists):
-#   preview_heroes_lineup.png   - Brann and Rocco side by side (close-up, lab)
-#   preview_boxer_poses.png     - Rocco: guard, jab, cross, uppercut, Hammerfaust
+#   preview_heroes_lineup.png   - Brann and Brine side by side (close-up, lab)
+#   preview_boxer_poses.png     - Brine: guard, jab, cross, uppercut, Hammerfaust
 #   preview_boxer_jab.png       - game camera: the jab lands in a Wichtel pack
 #   preview_boxer_uppercut.png  - game camera: uppercut hit frame (hitstop)
 #   preview_boxer_after.png     - a few frames later: bodies flying, dust

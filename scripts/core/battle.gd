@@ -46,7 +46,7 @@ var max_delta := 1.0 / 20.0
 
 var hero: Node3D
 var arena: Node3D
-## The hero's own weapon (legacy name: Brann's shotgun, Rocco's fists).
+## The hero's own weapon (legacy name: Brann's shotgun, Brine's fists).
 var shotgun: Node
 ## Stage 3 Teil B: all weapons of the run (own weapon first), stepped in order;
 ## they follow progress.weapons (NEUE WAFFE adds one, restart drops extras).
