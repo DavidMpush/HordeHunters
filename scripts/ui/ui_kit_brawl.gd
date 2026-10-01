@@ -693,6 +693,33 @@ static func _box() -> StyleBoxFlat:
 	return _sb
 
 
+## Etappe 4 Teil E: one finished StyleBoxFlat per (colour, radius, border)
+## instead of re-setting the shared box per call (every setter emits
+## "changed"); border 0 = solid fill, else an outline ring of that width.
+static var _boxes := {}
+
+
+static func _cached_box(color: Color, r: int, border: int) -> StyleBoxFlat:
+	var key := Vector4i(r, border, color.to_rgba32(), 0)
+	var sb: StyleBoxFlat = _boxes.get(key)
+	if sb == null:
+		if _boxes.size() >= 1024:
+			_boxes.clear()
+		sb = StyleBoxFlat.new()
+		sb.anti_aliasing = true
+		sb.anti_aliasing_size = 1.0
+		sb.draw_center = border == 0
+		if border == 0:
+			sb.bg_color = color
+		else:
+			sb.border_color = color
+			sb.set_border_width_all(border)
+		sb.set_corner_radius_all(r)
+		sb.corner_detail = _detail(r)
+		_boxes[key] = sb
+	return sb
+
+
 static func _detail(radius: float) -> int:
 	return clampi(int(radius * 0.5), 4, 16)
 
@@ -701,28 +728,19 @@ static func _detail(radius: float) -> int:
 static func rrect(canvas: CanvasItem, rect: Rect2, radius: float, color: Color) -> void:
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0 or color.a <= 0.0:
 		return
-	var sb := _box()
-	sb.draw_center = true
-	sb.bg_color = color
-	sb.set_border_width_all(0)
 	var r := int(roundf(clampf(radius, 0.0, minf(rect.size.x, rect.size.y) * 0.5)))
-	sb.set_corner_radius_all(r)
-	sb.corner_detail = _detail(r)
-	canvas.draw_style_box(sb, rect)
+	canvas.draw_style_box(_cached_box(color, r, 0), rect)
 
 
 ## Anti-aliased rounded outline ring of `width` inside `rect`.
 static func ring(canvas: CanvasItem, rect: Rect2, radius: float, width: float, color: Color) -> void:
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
-	var sb := _box()
-	sb.draw_center = false
-	sb.border_color = color
-	sb.set_border_width_all(int(roundf(width)))
 	var r := int(roundf(clampf(radius, 0.0, minf(rect.size.x, rect.size.y) * 0.5)))
-	sb.set_corner_radius_all(r)
-	sb.corner_detail = _detail(r)
-	canvas.draw_style_box(sb, rect)
+	var w := int(roundf(width))
+	if w <= 0:
+		return
+	canvas.draw_style_box(_cached_box(color, r, w), rect)
 
 
 ## Highlight along the top edge only (curves into the corners).
@@ -743,23 +761,37 @@ static func top_rim(canvas: CanvasItem, rect: Rect2, radius: float, color: Color
 ## Vertical fade overlay in the rounded shape: `color` at full alpha from the
 ## top down to `from` (0..1 of the height), then fading to transparent at `to`.
 ## Edges near full alpha must lie under an outline ring (not anti-aliased).
+static var _fade_cache := {}
+
+
 static func fade_rrect(canvas: CanvasItem, rect: Rect2, radius: float, color: Color, from: float, to: float) -> void:
 	var h := rect.size.y * to
 	if h <= 1.0 or rect.size.x <= 1.0:
 		return
 	var r := clampf(radius, 0.0, minf(rect.size.x * 0.5, rect.size.y * 0.5))
-	# The real contour, clipped at the fade end (convex, so one clip pass).
-	var pts := _clip_below(round_rect_points(rect, Vector4(r, r, r, r)), rect.position.y + h)
-	if pts.size() < 3:
+	# Etappe 4 Teil E: the shape only depends on size, radius, colour and the
+	# fade band; built once at the origin and moved natively (world-anchored
+	# bars repaint every frame).
+	var key := [rect.size, r, color, from, to]
+	var cached: Variant = _fade_cache.get(key)
+	if cached == null:
+		var local := Rect2(Vector2.ZERO, rect.size)
+		# The real contour, clipped at the fade end (convex, so one clip pass).
+		var pts := _clip_below(round_rect_points(local, Vector4(r, r, r, r)), h)
+		var cols := PackedColorArray()
+		var clear := Color(color, 0.0)
+		var start := rect.size.y * from
+		for p in pts:
+			var k := 0.0 if p.y <= start else clampf((p.y - start) / maxf(h - start, 0.001), 0.0, 1.0)
+			cols.append(color.lerp(clear, k))
+		if _fade_cache.size() >= 512:
+			_fade_cache.clear()
+		cached = [pts, cols]
+		_fade_cache[key] = cached
+	var shape: PackedVector2Array = cached[0]
+	if shape.size() < 3:
 		return
-	var cols := PackedColorArray()
-	var clear := Color(color, 0.0)
-	var start := rect.size.y * from
-	for p in pts:
-		var y := p.y - rect.position.y
-		var k := 0.0 if y <= start else clampf((y - start) / maxf(h - start, 0.001), 0.0, 1.0)
-		cols.append(color.lerp(clear, k))
-	canvas.draw_polygon(pts, cols)
+	canvas.draw_polygon(Transform2D(0.0, rect.position) * shape, cached[1])
 
 
 # Keeps the part of a convex polygon with y <= cut; drops duplicate points

@@ -51,8 +51,10 @@ const SEPARATION_SPEED := 5.0
 const SEPARATION_BUDGET := 12
 const FLOW_NEAR := 8.0
 const FLOW_REFRESH := 6
+const FLOW_FAR := 16.0
 const FLASH_DECAY := 7.0
 const GAIT_RATE := 13.0
+const GAIT_WRAP := TAU * 8.0
 const CELL := 1.0
 const GRID := 80
 const STRIDE := 20           # 12 transform + 4 colour + 4 custom
@@ -101,6 +103,26 @@ var _ring := PackedByteArray()
 var _ring_angle := PackedFloat32Array()
 var _next := PackedInt32Array()
 var _head := PackedInt32Array()
+# Etappe 4 Teil E (CPU): wall clearance cache. At a probe the free distance to
+# every wall, stone and the map edge is measured (_clear, at _probe_at); while
+# the enemy stays inside that circle resolve_motion() could not change its
+# motion and is skipped. _hug: frames of direct resolving for wall huggers.
+var _probe_at := PackedVector3Array()
+var _clear := PackedFloat32Array()
+var _hug := PackedByteArray()
+# Off-screen enemies that only approach step every second frame with the
+# collected time (_lag), the same motion at half the script cost.
+var _lag := PackedFloat32Array()
+## Indices of living Brocken (not champions) and of champions, rebuilt in
+## _draw() every step (HUD bars iterate these instead of every enemy).
+var brocken_list := PackedInt32Array()
+var elite_list := PackedInt32Array()
+## Bench / tests: off = every enemy steps every frame and resolves walls like
+## before Teil E (same rules, only the cost differs).
+var lazy_enabled := true
+var _view := Rect2()
+var _view_ok := false
+var _obstacle_cell := 0.0
 var _anchor := Vector3.ZERO
 var _frame := 0
 
@@ -146,10 +168,8 @@ var _elite_arcs: Array[MeshInstance3D] = []
 # Drawing
 var _built := false
 var _bodies: Array[MultiMeshInstance3D] = []
-var _buffers: Array[PackedFloat32Array] = []
 var _base: Array[Transform3D] = []
 var _shadows: MultiMeshInstance3D
-var _shadow_buffer := PackedFloat32Array()
 var _arcs: Array[MeshInstance3D] = []
 
 
@@ -296,6 +316,9 @@ func spawn(kind: int, at: Vector3, elite := false, hp_mult := 1.0, speed_mult :=
 	_flash[i] = 0.0
 	_appear[i] = 0.0
 	_near[i] = 1
+	_clear[i] = 0.0
+	_hug[i] = 0
+	_lag[i] = 0.0
 	return i
 
 
@@ -324,6 +347,9 @@ func relocate(i: int, at: Vector3) -> void:
 	_appear[i] = 0.0
 	_near[i] = 1
 	_ring[i] = 0
+	_clear[i] = 0.0
+	_hug[i] = 0
+	_lag[i] = 0.0
 
 
 func clear() -> void:
@@ -334,6 +360,8 @@ func clear() -> void:
 	kills_by_kind = PackedInt32Array([0, 0, 0])
 	strikes = 0
 	strikes_hit = 0
+	brocken_list = PackedInt32Array()
+	elite_list = PackedInt32Array()
 	_draw()
 
 
@@ -509,6 +537,10 @@ func _kill(i: int, dir: Vector3, knock: float) -> void:
 		_flash[i] = _flash[last]
 		_appear[i] = _appear[last]
 		_near[i] = _near[last]
+		_probe_at[i] = _probe_at[last]
+		_clear[i] = _clear[last]
+		_hug[i] = _hug[last]
+		_lag[i] = _lag[last]
 	_n = last
 	# Signals after the swap: listeners may spawn (drops) without breaking the arrays.
 	enemy_killed.emit(kind, at)
@@ -527,12 +559,23 @@ func step(delta: float) -> void:
 	var hero_vel := Vector3.ZERO
 	if hero != null and is_instance_valid(hero) and hero.get("velocity") is Vector3:
 		hero_vel = hero.velocity
+	var alive := _hero_alive()
 	_index(hero_at)
-	var steer := 1.0 - exp(-STEER * delta)
-	var turn := 1.0 - exp(-TURN * delta)
-	var friction := exp(-T.KNOCK_FRICTION * delta)
-	var walls := walls_enabled and arena != null and is_instance_valid(arena) and arena.has_method("resolve_motion")
-	var guided := arena != null and is_instance_valid(arena) and arena.has_method("flow_direction")
+	var steer_d := 1.0 - exp(-STEER * delta)
+	var turn_d := 1.0 - exp(-TURN * delta)
+	var friction_d := exp(-T.KNOCK_FRICTION * delta)
+	var has_arena := arena != null and is_instance_valid(arena)
+	var walls := walls_enabled and has_arena and arena.has_method("resolve_motion")
+	var guided := has_arena and arena.has_method("flow_direction")
+	# Teil E: clearance cache instead of the 10-frame probe (needs the world arena).
+	var fast_walls := walls and lazy_enabled and arena.has_method("obstacles") and arena.has_method("edge_distance")
+	var slow_ground := false
+	if fast_walls:
+		var sands: Variant = arena.get("_chunk_sands")
+		slow_ground = (sands is Dictionary and not (sands as Dictionary).is_empty()) or bool(arena.get("_has_water"))
+	_view_ok = false
+	var lazy := lazy_enabled and _update_view()
+	var view := _view
 	var pos := _pos
 	var vel := _vel
 	var knocks := _knock
@@ -545,87 +588,138 @@ func step(delta: float) -> void:
 	var head := _head
 	var nexts := _next
 	var radius := _radius
+	var speeds := _speed
+	var appears := _appear
+	var elites := _elite
+	var rings := _ring
+	var flows := _flow
+	var walks := _walk
+	var gaits := _gait
+	var flashes := _flash
+	var nears := _near
+	var probes := _probe_at
+	var clears := _clear
+	var hugs := _hug
+	var lags := _lag
+	var reach_k := _reach
+	var lead_k := _lead
 	var ax := _anchor.x
 	var az := _anchor.z
+	var ring_on := ring_active
+	var engage_share := T.ENGAGE_SHARE
 	for i in _n:
-		var k := kinds[i]
 		var p := pos[i]
-		var r := radius[k]
+		var state := states[i]
 		var tx := hero_at.x - p.x
 		var tz := hero_at.z - p.z
+		var dt := delta
+		var steer := steer_d
+		var turn := turn_d
+		var friction := friction_d
+		if lazy:
+			# Off-screen walkers step every second frame with the collected time.
+			var lag := lags[i]
+			if state == State.APPROACH and rings[i] == 0 and not view.has_point(Vector2(p.x, p.z)) and tx * tx + tz * tz > 81.0:
+				if ((i + _frame) & 1) == 1:
+					lags[i] = lag + delta
+					continue
+			if lag > 0.0:
+				dt = minf(delta + lag, 0.1)
+				lags[i] = 0.0
+				steer = 1.0 - exp(-STEER * dt)
+				turn = 1.0 - exp(-TURN * dt)
+				friction = exp(-T.KNOCK_FRICTION * dt)
+		var k := kinds[i]
+		var r := radius[k]
 		var d := sqrt(tx * tx + tz * tz)
 		var nx := tx / d if d > 0.0001 else 0.0
 		var nz := tz / d if d > 0.0001 else 1.0
-		var speed := _speed[i]
-		var want := Vector3.ZERO
-		var state := states[i]
-		var shown := _appear[i]
-		var elite := _elite[i] == 1
-		var reach := PT.ELITE_REACH if elite else _reach[k]
-		match state:
-			State.APPROACH:
-				want = Vector3(nx * speed, 0.0, nz * speed)
-				# Cut the runner off: aim where the hero will be (not when close).
-				var lead := _lead[k]
-				if lead > 0.0 and d > 2.5 and hero_vel != Vector3.ZERO:
-					var aim := Vector3(tx + hero_vel.x * lead * minf(1.0, d / 8.0), 0.0, tz + hero_vel.z * lead * minf(1.0, d / 8.0))
-					if aim.length_squared() > 0.0001:
-						want = aim.normalized() * speed
-				if _ring[i] == 1 and ring_active:
-					# Formation: walk to the own slot on the shrinking ring; the
-					# slots squeeze together so the gap keeps its width in metres.
-					var g := minf(PI, ring_gap_width / maxf(0.5, ring_radius))
-					var a := ring_gap + g * 0.5 + (TAU - g) * _ring_angle[i]
-					var sx := ring_center.x + cos(a) * ring_radius - p.x
-					var sz := ring_center.z + sin(a) * ring_radius - p.z
-					var sd := sqrt(sx * sx + sz * sz)
-					want = Vector3(sx, 0.0, sz) / sd * minf(speed, sd * 4.0) if sd > 0.05 else Vector3.ZERO
-				elif guided and d > FLOW_NEAR:
-					var flow := _flow[i]
-					if (i + _frame) % FLOW_REFRESH == 0 or flow == Vector3.ZERO:
-						flow = arena.flow_direction(p, r)
-						_flow[i] = flow
-					if flow != Vector3.ZERO:
-						want = flow * speed
-				if shown >= 1.0 and d <= reach * T.ENGAGE_SHARE + hero_r and _hero_alive():
-					states[i] = State.WINDUP
-					timers[i] = PT.ELITE_WINDUP if elite else _windup[k]
-					# Plant the feet: the wind-up is a clear stop, no sliding in.
-					vel[i] = Vector3.ZERO
-					dirs[i] = Vector3(nx, 0.0, nz)
-					windup_started.emit(k, p)
-			State.WINDUP:
-				timers[i] -= delta
-				if timers[i] <= 0.0:
-					var dir := dirs[i]
-					var in_reach := d <= reach + hero_r
-					# The champion stomps all around; the others swing forward.
-					if in_reach and not elite and _arc_cos[k] > -1.0 and d > 0.0001:
-						in_reach = dir.x * nx + dir.z * nz >= _arc_cos[k]
-					var landed := false
-					strikes += 1
-					if in_reach and _hero_alive() and hero.has_method("take_hit"):
-						landed = bool(hero.take_hit((PT.ELITE_DAMAGE if elite else _damage[k]) * damage_mult, p))
-					if landed:
-						strikes_hit += 1
-					swing_landed.emit(k, p if elite else p + dir * minf(d, _reach[k]), landed)
-					states[i] = State.STRIKE
-					timers[i] = STRIKE_SECONDS
-			State.STRIKE:
-				timers[i] -= delta
-				if timers[i] <= 0.0:
-					states[i] = State.RECOVER
-					timers[i] = PT.ELITE_RECOVER if elite else _recover[k]
-			State.RECOVER:
-				# Shuffle closer slowly while recovering (no free hits, no full stop).
-				want = Vector3(nx * speed * 0.25, 0.0, nz * speed * 0.25)
-				timers[i] -= delta
-				if timers[i] <= 0.0:
-					states[i] = State.APPROACH
-			State.STAGGER:
-				timers[i] -= delta
-				if timers[i] <= 0.0:
-					states[i] = State.APPROACH
+		var speed := speeds[i]
+		var wx := 0.0
+		var wz := 0.0
+		var shown := appears[i]
+		var elite := elites[i] == 1
+		var reach := PT.ELITE_REACH if elite else reach_k[k]
+		if state == State.APPROACH:
+			wx = nx * speed
+			wz = nz * speed
+			# Cut the runner off: aim where the hero will be (not when close).
+			var lead := lead_k[k]
+			if lead > 0.0 and d > 2.5 and hero_vel != Vector3.ZERO:
+				var ahead := lead * minf(1.0, d / 8.0)
+				var aimx := tx + hero_vel.x * ahead
+				var aimz := tz + hero_vel.z * ahead
+				var aim2 := aimx * aimx + aimz * aimz
+				if aim2 > 0.0001:
+					var al := sqrt(aim2)
+					wx = aimx / al * speed
+					wz = aimz / al * speed
+			if rings[i] == 1 and ring_on:
+				# Formation: walk to the own slot on the shrinking ring; the
+				# slots squeeze together so the gap keeps its width in metres.
+				var g := minf(PI, ring_gap_width / maxf(0.5, ring_radius))
+				var a := ring_gap + g * 0.5 + (TAU - g) * _ring_angle[i]
+				var sx := ring_center.x + cos(a) * ring_radius - p.x
+				var sz := ring_center.z + sin(a) * ring_radius - p.z
+				var sd := sqrt(sx * sx + sz * sz)
+				if sd > 0.05:
+					var ss := minf(speed, sd * 4.0) / sd
+					wx = sx * ss
+					wz = sz * ss
+				else:
+					wx = 0.0
+					wz = 0.0
+			elif guided and d > FLOW_NEAR:
+				var flow := flows[i]
+				# Teil E: far walkers (beyond FLOW_FAR) look the field up half as often.
+				var refresh := FLOW_REFRESH * 2 if d > FLOW_FAR and lazy_enabled else FLOW_REFRESH
+				if (i + _frame) % refresh == 0 or flow == Vector3.ZERO:
+					flow = arena.flow_direction(p, r)
+					flows[i] = flow
+				if flow != Vector3.ZERO:
+					wx = flow.x * speed
+					wz = flow.z * speed
+			if shown >= 1.0 and d <= reach * engage_share + hero_r and alive:
+				states[i] = State.WINDUP
+				timers[i] = PT.ELITE_WINDUP if elite else _windup[k]
+				# Plant the feet: the wind-up is a clear stop, no sliding in.
+				vel[i] = Vector3.ZERO
+				dirs[i] = Vector3(nx, 0.0, nz)
+				windup_started.emit(k, p)
+		elif state == State.WINDUP:
+			timers[i] -= dt
+			if timers[i] <= 0.0:
+				var dir := dirs[i]
+				var in_reach := d <= reach + hero_r
+				# The champion stomps all around; the others swing forward.
+				if in_reach and not elite and _arc_cos[k] > -1.0 and d > 0.0001:
+					in_reach = dir.x * nx + dir.z * nz >= _arc_cos[k]
+				var landed := false
+				strikes += 1
+				if in_reach and alive and hero.has_method("take_hit"):
+					landed = bool(hero.take_hit((PT.ELITE_DAMAGE if elite else _damage[k]) * damage_mult, p))
+					alive = _hero_alive()
+				if landed:
+					strikes_hit += 1
+				swing_landed.emit(k, p if elite else p + dir * minf(d, reach_k[k]), landed)
+				states[i] = State.STRIKE
+				timers[i] = STRIKE_SECONDS
+		elif state == State.STRIKE:
+			timers[i] -= dt
+			if timers[i] <= 0.0:
+				states[i] = State.RECOVER
+				timers[i] = PT.ELITE_RECOVER if elite else _recover[k]
+		elif state == State.RECOVER:
+			# Shuffle closer slowly while recovering (no free hits, no full stop).
+			wx = nx * speed * 0.25
+			wz = nz * speed * 0.25
+			timers[i] -= dt
+			if timers[i] <= 0.0:
+				states[i] = State.APPROACH
+		else:
+			timers[i] -= dt
+			if timers[i] <= 0.0:
+				states[i] = State.APPROACH
 		# Separation (every second frame per enemy; the push holds in between).
 		if ((i + _frame) & 1) == 0:
 			var px := 0.0
@@ -635,9 +729,13 @@ func step(delta: float) -> void:
 			if p.x >= ax and p.z >= az and gx < GRID and gz < GRID:
 				var span := 1 if r < 0.6 else 2
 				var budget := SEPARATION_BUDGET
-				for cz in range(maxi(0, gz - span), mini(GRID, gz + span + 1)):
+				var z0 := maxi(0, gz - span)
+				var z1 := mini(GRID, gz + span + 1)
+				var x0 := maxi(0, gx - span)
+				var x1 := mini(GRID, gx + span + 1)
+				for cz in range(z0, z1):
 					var row := cz * GRID
-					for cx in range(maxi(0, gx - span), mini(GRID, gx + span + 1)):
+					for cx in range(x0, x1):
 						var j := head[row + cx]
 						while j >= 0 and budget > 0:
 							if j != i:
@@ -650,7 +748,7 @@ func step(delta: float) -> void:
 								if d2 < least * least:
 									budget -= 1
 									# Heavier bodies yield less.
-									var share := rj / (r + rj) * 2.0
+									var share := rj / least * 2.0
 									if d2 > 0.000001:
 										var dd := sqrt(d2)
 										var w := (least - dd) / (least * dd) * share
@@ -664,55 +762,99 @@ func step(delta: float) -> void:
 			# Capped: a dense clump spreads at walking pace instead of exploding.
 			pushes[i] = (Vector3(px, 0.0, pz) * SEPARATION_SPEED).limit_length(speed * 0.9 + 1.2)
 		var v := vel[i]
-		v.x += (want.x - v.x) * steer
-		v.z += (want.z - v.z) * steer
+		v.x += (wx - v.x) * steer
+		v.z += (wz - v.z) * steer
 		vel[i] = v
 		var kn := knocks[i]
 		var push := pushes[i]
-		var motion := (v + push + kn) * delta
-		knocks[i] = kn * friction if kn.length_squared() > 0.0004 else Vector3.ZERO
-		var next := Vector3(p.x + motion.x, 0.0, p.z + motion.z)
-		if walls:
+		var mx := (v.x + push.x + kn.x) * dt
+		var mz := (v.z + push.z + kn.z) * dt
+		var kn2 := kn.x * kn.x + kn.z * kn.z + kn.y * kn.y
+		if kn2 > 0.0004:
+			knocks[i] = kn * friction
+		elif kn2 > 0.0:
+			knocks[i] = Vector3.ZERO
+		var next := Vector3(p.x + mx, 0.0, p.z + mz)
+		if fast_walls:
+			# Inside the measured free circle nothing can push: no resolve.
+			var skip := false
+			var cl := clears[i]
+			if cl > 0.0:
+				var a := probes[i]
+				var ex := next.x - a.x
+				var ez := next.z - a.z
+				skip = ex * ex + ez * ez < cl * cl
+			if not skip:
+				if hugs[i] > 0:
+					hugs[i] -= 1
+				else:
+					var c := _clearance(p, r)
+					probes[i] = p
+					nears[i] = 1 if c < NEAR_MARGIN else 0
+					if c > 0.25:
+						cl = c - 0.05
+						clears[i] = cl
+						skip = mx * mx + mz * mz < cl * cl
+					else:
+						clears[i] = 0.0
+						hugs[i] = 6
+			if skip:
+				if slow_ground and nears[i] == 1:
+					# Quicksand / shallow water slow like resolve_motion did.
+					var slow: float = arena.quicksand_factor(p) * arena.shallow_factor(p)
+					if slow < 1.0:
+						next = Vector3(p.x + mx * slow, 0.0, p.z + mz * slow)
+			elif mx * mx + mz * mz > 0.0:
+				next = arena.resolve_motion(p, Vector3(mx, 0.0, mz), r)
+		elif walls:
 			# Collision is costly on the real map: every NEAR_CHECK frames a fat
 			# probe (body + NEAR_MARGIN) tells whether anything solid is close;
 			# only then the full resolve runs every frame.
 			if (i + _frame) % NEAR_CHECK == 0:
 				var probe: Vector3 = arena.resolve_motion(p, Vector3.ZERO, r + NEAR_MARGIN)
-				_near[i] = 1 if (probe.x - p.x) * (probe.x - p.x) + (probe.z - p.z) * (probe.z - p.z) > 0.000001 else 0
-			if _near[i] == 1 and motion.length_squared() > 0.0:
-				next = arena.resolve_motion(p, motion, r)
+				nears[i] = 1 if (probe.x - p.x) * (probe.x - p.x) + (probe.z - p.z) * (probe.z - p.z) > 0.000001 else 0
+			if nears[i] == 1 and mx * mx + mz * mz > 0.0:
+				next = arena.resolve_motion(p, Vector3(mx, 0.0, mz), r)
 		# Never inside the hero's body.
 		var hx := next.x - hero_at.x
 		var hz := next.z - hero_at.z
 		var least_h := r + hero_r * 0.9
 		var dh2 := hx * hx + hz * hz
-		if dh2 < least_h * least_h and _hero_alive():
+		if dh2 < least_h * least_h and alive:
 			var dh := sqrt(dh2)
 			if dh > 0.0001:
 				next.x = hero_at.x + hx / dh * least_h
 				next.z = hero_at.z + hz / dh * least_h
 		pos[i] = next
 		# Facing: the locked attack direction while striking, else the movement.
+		var fx := next.x - p.x
+		var fz := next.z - p.z
+		var moved2 := fx * fx + fz * fz
 		if state == State.WINDUP or state == State.STRIKE:
 			var lock := dirs[i]
 			yaws[i] = lerp_angle(yaws[i], atan2(lock.x, lock.z), turn * 1.6)
-		else:
-			var mx := next.x - p.x
-			var mz := next.z - p.z
-			if mx * mx + mz * mz > 0.000025 and kn.length_squared() < 1.0:
-				yaws[i] = lerp_angle(yaws[i], atan2(mx, mz), turn)
-			elif state == State.RECOVER:
-				yaws[i] = lerp_angle(yaws[i], atan2(nx, nz), turn * 0.5)
-		var real := Vector2(next.x - p.x, next.z - p.z).length() / maxf(delta, 0.0001)
-		var walk := _walk[i]
-		walk += (clampf(real / maxf(speed, 0.1), 0.0, 1.0) - walk) * steer
-		_walk[i] = walk
-		_gait[i] = fposmod(_gait[i] + delta * GAIT_RATE * walk * (speed / 3.2), TAU * 8.0)
+		elif moved2 > 0.000025 and kn2 < 1.0:
+			yaws[i] = lerp_angle(yaws[i], atan2(fx, fz), turn)
+		elif state == State.RECOVER:
+			yaws[i] = lerp_angle(yaws[i], atan2(nx, nz), turn * 0.5)
+		# Walk share of the real ground speed (0..1); the gait wraps at 8 turns.
+		var ratio := 0.0
+		if moved2 > 0.0:
+			ratio = sqrt(moved2) / (dt if dt > 0.0001 else 0.0001) / (speed if speed > 0.1 else 0.1)
+			if ratio > 1.0:
+				ratio = 1.0
+		var walk := walks[i]
+		walk += (ratio - walk) * steer
+		walks[i] = walk
+		var gait := gaits[i] + dt * GAIT_RATE * walk * (speed / 3.2)
+		if gait >= GAIT_WRAP or gait < 0.0:
+			gait = fposmod(gait, GAIT_WRAP)
+		gaits[i] = gait
 		if shown < 1.0:
-			_appear[i] = minf(1.0, shown + delta / APPEAR_SECONDS)
-		var flash := _flash[i]
+			appears[i] = minf(1.0, shown + dt / APPEAR_SECONDS)
+		var flash := flashes[i]
 		if flash > 0.0:
-			_flash[i] = maxf(0.0, flash - FLASH_DECAY * delta)
+			flashes[i] = maxf(0.0, flash - FLASH_DECAY * dt)
 	_pos = pos
 	_vel = vel
 	_knock = knocks
@@ -721,11 +863,78 @@ func step(delta: float) -> void:
 	_timer = timers
 	_yaw = yaws
 	_dir = dirs
+	_appear = appears
+	_flow = flows
+	_walk = walks
+	_gait = gaits
+	_flash = flashes
+	_near = nears
+	_probe_at = probes
+	_clear = clears
+	_hug = hugs
+	_lag = lags
 	_step_corpses(delta)
 	var t1 := Time.get_ticks_usec()
 	_draw()
 	usec_draw += Time.get_ticks_usec() - t1
 	usec_step += Time.get_ticks_usec() - t0
+
+
+## Free distance (m) of a body of radius r at p to the walls, stones and the map
+## edge (capped at 8 m): any motion shorter than this needs no resolve_motion().
+func _clearance(p: Vector3, r: float) -> float:
+	var c := 8.0
+	var layout: Variant = arena.get("layout")
+	if layout != null:
+		# The interpolated distance field may rise a little faster than 1 m/m.
+		c = minf(c, (float(layout.sample(p.x, p.z)) - r) / 1.5)
+	c = minf(c, -float(arena.edge_distance(p)) - r)
+	if c <= 0.25:
+		return c
+	if _obstacle_cell <= 0.0:
+		_obstacle_cell = float(arena.get_script().get_script_constant_map().get("CELL", 28.0))
+	# The same 3 x 3 chunks resolve_motion() pushes out of.
+	var mx := floori(p.x / _obstacle_cell)
+	var mz := floori(p.z / _obstacle_cell)
+	for x in range(mx - 1, mx + 2):
+		for z in range(mz - 1, mz + 2):
+			for circle: Vector4 in arena.obstacles(Vector2i(x, z)):
+				var dx := p.x - circle.x
+				var dz := p.z - circle.z
+				var gap := sqrt(dx * dx + dz * dz) - circle.w - r
+				if gap < c:
+					c = gap
+					if c <= 0.25:
+						return c
+	return c
+
+
+## Visible ground (xz) of the game camera plus a margin; false without a camera
+## (tests): then every enemy steps every frame.
+func _update_view() -> bool:
+	_view_ok = false
+	if not is_inside_tree():
+		return false
+	var viewport := get_viewport()
+	var camera := viewport.get_camera_3d() if viewport != null else null
+	if camera == null or not camera.is_inside_tree():
+		return false
+	var size := viewport.get_visible_rect().size
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for corner: Vector2 in [Vector2.ZERO, Vector2(size.x, 0.0), Vector2(0.0, size.y), size]:
+		var from := camera.project_ray_origin(corner)
+		var ray := camera.project_ray_normal(corner)
+		if ray.y > -0.05:
+			return false
+		var t := -from.y / ray.y
+		var hit := Vector2(from.x + ray.x * t, from.z + ray.z * t)
+		lo = Vector2(minf(lo.x, hit.x), minf(lo.y, hit.y))
+		hi = Vector2(maxf(hi.x, hit.x), maxf(hi.y, hit.y))
+	# Bodies, lifts and the camera shake: a generous margin.
+	_view = Rect2(lo, hi - lo).grow(4.0)
+	_view_ok = true
+	return true
 
 
 func _hero_position() -> Vector3:
@@ -779,7 +988,10 @@ func _step_corpses(delta: float) -> void:
 		else:
 			at += vel * delta
 			vel *= exp(-6.0 * delta)
-		if (index + _frame) % 3 == 0 and arena != null and is_instance_valid(arena) and arena.has_method("resolve_motion"):
+		# A landed body that has nearly stopped (< 0.2 m/s) slides no more than a
+		# few millimetres: no wall check (Teil E).
+		var resting: bool = c.landed and vel.x * vel.x + vel.z * vel.z < 0.04
+		if not resting and (index + _frame) % 3 == 0 and arena != null and is_instance_valid(arena) and arena.has_method("resolve_motion"):
 			var flat: Vector3 = arena.resolve_motion(Vector3(c.pos.x, 0.0, c.pos.z), Vector3(at.x - c.pos.x, 0.0, at.z - c.pos.z), 0.2)
 			at = Vector3(flat.x, at.y, flat.z)
 		c.vel = vel
@@ -816,6 +1028,10 @@ func _allocate() -> void:
 	_hp_max.resize(CAP)
 	_ring.resize(CAP)
 	_ring_angle.resize(CAP)
+	_probe_at.resize(CAP)
+	_clear.resize(CAP)
+	_hug.resize(CAP)
+	_lag.resize(CAP)
 	_head.resize(GRID * GRID)
 	_radius.resize(KINDS)
 	_reach.resize(KINDS)
@@ -875,10 +1091,10 @@ func _build() -> void:
 		body.top_level = true
 		body.global_transform = Transform3D.IDENTITY
 		_bodies.append(body)
-		var buffer := PackedFloat32Array()
-		buffer.resize((CAP + CORPSE_CAP) * STRIDE)
-		buffer.fill(0.0)
-		_buffers.append(buffer)
+	# The instance colour is always white: set once here, never per frame.
+	for body in _bodies:
+		for slot in CAP + CORPSE_CAP:
+			body.multimesh.set_instance_color(slot, Color.WHITE)
 	# Soft blob shadows under every enemy (one MultiMesh).
 	var plane := PlaneMesh.new()
 	plane.size = Vector2.ONE
@@ -895,8 +1111,6 @@ func _build() -> void:
 	add_child(_shadows)
 	_shadows.top_level = true
 	_shadows.global_transform = Transform3D.IDENTITY
-	_shadow_buffer.resize(CAP * 12)
-	_shadow_buffer.fill(0.0)
 
 
 ## [mesh, base transform]: head along +Z, feet at y = 0, longest ground
@@ -931,95 +1145,143 @@ func _fit_model(path: String, length: float, yaw: float) -> Array:
 func _draw() -> void:
 	if not _built:
 		return
-	var shadow := _shadow_buffer
-	_shadow_buffer = PackedFloat32Array()
+	# Teil E: one pass over the enemies (was one per kind), the pose math inlined
+	# (same result as _pose()), the white instance colour set once in _build().
+	# Per instance two native calls are cheaper here than 20 GDScript buffer
+	# writes (measured).
+	var mms: Array[MultiMesh] = [_bodies[0].multimesh, _bodies[1].multimesh, _bodies[2].multimesh]
+	var shadow_mm := _shadows.multimesh
+	var slots := PackedInt32Array([0, 0, 0])
 	var shadows := 0
+	var bars := PackedInt32Array()
+	var champions := PackedInt32Array()
+	var arcs := PackedInt32Array()
+	var kinds := _kind
+	var states := _state
+	var timers := _timer
+	var elites := _elite
+	var pos := _pos
+	var bases := _base
+	var brocken := T.Kind.BROCKEN
+	# Off-screen bodies need no instance (the view of this step, with margin).
+	var cull := _view_ok
+	var view := _view
+	_view_ok = false
+	for i in _n:
+		var k := kinds[i]
+		var p := pos[i]
+		var state := states[i]
+		var elite := elites[i] == 1
+		if k == brocken:
+			if elite:
+				champions.append(i)
+			else:
+				bars.append(i)
+			if state == State.WINDUP or state == State.STRIKE:
+				arcs.append(i)
+		if cull and not view.has_point(Vector2(p.x, p.z)):
+			continue
+		var walk := _walk[i]
+		var hop := absf(sin(_gait[i])) * 0.09 * walk * (0.5 if k == brocken else 1.0)
+		var lean := 0.0
+		var sy := 1.0
+		var sxz := 1.0
+		var glow := 0.0
+		var lunge := 0.0
+		if state == State.WINDUP:
+			var windup := PT.ELITE_WINDUP if elite else _windup[k]
+			var w := 1.0 - timers[i] / windup
+			var e := 1.0 - (1.0 - w) * (1.0 - w)
+			lean = -0.42 * e
+			sy = 1.0 + 0.16 * e
+			sxz = 1.0 - 0.06 * e
+			glow = 0.25 + 0.75 * w
+			if elite:
+				# Champion: rears up high for the stomp.
+				lean = -0.6 * e
+				sy = 1.0 + 0.22 * e
+				hop += 0.45 * e
+			# Shiver just before the strike.
+			if w > 0.7:
+				lunge = sin(timers[i] * 90.0) * 0.03
+		elif state == State.STRIKE:
+			var s := 1.0 - timers[i] / STRIKE_SECONDS
+			var arc_s := sin(s * PI)
+			lean = 0.38 * arc_s
+			lunge = (0.55 if k == brocken else 0.4) * arc_s
+			sy = 0.86
+			sxz = 1.12
+			glow = 1.0 - s
+			if elite:
+				# Slams straight down (all around, not forward).
+				lean = 0.15 * arc_s
+				lunge = 0.0
+				sy = 0.8
+				sxz = 1.16
+		elif state == State.STAGGER:
+			lean = -0.25
+			sy = 0.9
+			sxz = 1.08
+		# Knockback tips the body back and lifts it a little.
+		var kn := _knock[i]
+		var kn2 := kn.x * kn.x + kn.y * kn.y + kn.z * kn.z
+		if kn2 > 0.04:
+			var kn_len := sqrt(kn2)
+			lean -= minf(0.5, kn_len * 0.09)
+			hop += minf(0.25, kn_len * 0.04)
+		var grow := _appear[i]
+		if grow < 1.0:
+			var g := grow - 1.0
+			grow = 1.0 + 2.70158 * g * g * g + 1.70158 * g * g
+		var size := PT.ELITE_SCALE if elite else 1.0
+		var yaw := _yaw[i]
+		var cy := cos(yaw)
+		var sn := sin(yaw)
+		var cl := cos(lean)
+		var sl := sin(lean)
+		var a := sxz * grow * size
+		var b := sy * grow * size
+		# Basis(UP, yaw) * Basis(RIGHT, lean) * scale(a, b, a), then the model base.
+		var m := Basis(Vector3(cy * a, 0.0, -sn * a), Vector3(sn * sl * b, cl * b, cy * sl * b), Vector3(sn * cl * a, -sl * a, cy * cl * a))
+		var base := bases[k]
+		var full := m * base.basis
+		var o := m * base.origin
+		var ox := p.x + sn * lunge + o.x
+		var oy := hop + o.y
+		var oz := p.z + cy * lunge + o.z
+		var mm := mms[k]
+		var slot := slots[k]
+		slots[k] = slot + 1
+		mm.set_instance_transform(slot, Transform3D(full, Vector3(ox, oy, oz)))
+		mm.set_instance_custom_data(slot, Color(_flash[i], glow, 0.0, 1.0 if elite else 0.0))
+		var spread := _radius[k] * 2.6 * grow * (1.0 - minf(hop, 0.6)) * size
+		shadow_mm.set_instance_transform(shadows, Transform3D(Basis(Vector3(spread, 0.0, 0.0), Vector3.UP, Vector3(0.0, 0.0, spread)), Vector3(p.x, 0.025, p.z)))
+		shadows += 1
+	for corpse in corpses:
+		var k := int(corpse.kind)
+		if slots[k] >= CAP + CORPSE_CAP:
+			continue
+		var t: float = corpse.age / CORPSE_LIFE
+		var fade := 1.0 - clampf((t - 0.75) / 0.25, 0.0, 1.0)
+		var angle: float = minf(float(corpse.angle), PI * 0.5) if k == brocken else float(corpse.angle)
+		var basis := Basis(corpse.axis, angle) * Basis(Vector3.UP, float(corpse.yaw)) * Basis.from_scale(Vector3.ONE * lerpf(0.4, 1.0, fade) * float(corpse.get("scale", 1.0)))
+		var at: Vector3 = corpse.pos
+		var xform := Transform3D(basis, at + Vector3(0, _radius[k] * 0.4, 0)) * bases[k]
+		var slot := slots[k]
+		slots[k] = slot + 1
+		var age := float(corpse.age)
+		mms[k].set_instance_transform(slot, xform)
+		mms[k].set_instance_custom_data(slot, Color(maxf(0.0, 1.0 - age * 8.0), 0.0, minf(0.55, age * 1.2), 0.0))
 	for kind in KINDS:
-		# Take the buffer out of the member so writes never copy it (COW).
-		var buffer := _buffers[kind]
-		_buffers[kind] = PackedFloat32Array()
-		var slot := 0
-		for i in _n:
-			if _kind[i] != kind:
-				continue
-			var pose := _pose(i)
-			var xform: Transform3D = pose[0]
-			var custom: Color = pose[1]
-			var b := xform.basis
-			var k := slot * STRIDE
-			buffer[k] = b.x.x
-			buffer[k + 1] = b.y.x
-			buffer[k + 2] = b.z.x
-			buffer[k + 3] = xform.origin.x
-			buffer[k + 4] = b.x.y
-			buffer[k + 5] = b.y.y
-			buffer[k + 6] = b.z.y
-			buffer[k + 7] = xform.origin.y
-			buffer[k + 8] = b.x.z
-			buffer[k + 9] = b.y.z
-			buffer[k + 10] = b.z.z
-			buffer[k + 11] = xform.origin.z
-			buffer[k + 12] = 1.0
-			buffer[k + 13] = 1.0
-			buffer[k + 14] = 1.0
-			buffer[k + 15] = 1.0
-			buffer[k + 16] = custom.r
-			buffer[k + 17] = custom.g
-			buffer[k + 18] = custom.b
-			buffer[k + 19] = custom.a
-			slot += 1
-			var p := _pos[i]
-			var size := _radius[kind] * 2.6 * float(pose[2])
-			var m := shadows * 12
-			shadow[m] = size
-			shadow[m + 5] = 1.0
-			shadow[m + 7] = 0.025
-			shadow[m + 3] = p.x
-			shadow[m + 10] = size
-			shadow[m + 11] = p.z
-			shadows += 1
-		for c in corpses:
-			if int(c.kind) != kind or slot >= CAP + CORPSE_CAP:
-				continue
-			var t: float = c.age / CORPSE_LIFE
-			var fade := 1.0 - clampf((t - 0.75) / 0.25, 0.0, 1.0)
-			var angle: float = minf(float(c.angle), PI * 0.5) if kind == T.Kind.BROCKEN else float(c.angle)
-			var basis := Basis(c.axis, angle) * Basis(Vector3.UP, float(c.yaw)) * Basis.from_scale(Vector3.ONE * lerpf(0.4, 1.0, fade) * float(c.get("scale", 1.0)))
-			var at: Vector3 = c.pos
-			var xform := Transform3D(basis, at + Vector3(0, _radius[kind] * 0.4, 0)) * _base[kind]
-			var b := xform.basis
-			var k := slot * STRIDE
-			buffer[k] = b.x.x
-			buffer[k + 1] = b.y.x
-			buffer[k + 2] = b.z.x
-			buffer[k + 3] = xform.origin.x
-			buffer[k + 4] = b.x.y
-			buffer[k + 5] = b.y.y
-			buffer[k + 6] = b.z.y
-			buffer[k + 7] = xform.origin.y
-			buffer[k + 8] = b.x.z
-			buffer[k + 9] = b.y.z
-			buffer[k + 10] = b.z.z
-			buffer[k + 11] = xform.origin.z
-			buffer[k + 12] = 1.0
-			buffer[k + 13] = 1.0
-			buffer[k + 14] = 1.0
-			buffer[k + 15] = 1.0
-			buffer[k + 16] = maxf(0.0, 1.0 - float(c.age) * 8.0)
-			buffer[k + 17] = 0.0
-			buffer[k + 18] = minf(0.55, float(c.age) * 1.2)
-			buffer[k + 19] = 0.0
-			slot += 1
-		_buffers[kind] = buffer
 		var body := _bodies[kind]
-		body.multimesh.buffer = buffer
-		body.multimesh.visible_instance_count = slot
-		body.visible = slot > 0
-	_shadow_buffer = shadow
-	_shadows.multimesh.buffer = shadow
-	_shadows.multimesh.visible_instance_count = shadows
+		var used := slots[kind]
+		body.multimesh.visible_instance_count = used
+		body.visible = used > 0
+	shadow_mm.visible_instance_count = shadows
 	_shadows.visible = shadows > 0
-	_draw_arcs()
+	brocken_list = bars
+	elite_list = champions
+	_draw_arcs(arcs)
 
 
 ## [transform, custom (flash, wind-up glow, corpse, 0), shadow scale] of enemy i.
@@ -1086,10 +1348,10 @@ func _pose(i: int) -> Array:
 	return [xform, Color(_flash[i], glow, 0.0, 1.0 if elite else 0.0), grow * (1.0 - minf(hop, 0.6)) * size]
 
 ## Magenta ground arcs under every Brocken that winds up (pooled meshes).
-func _draw_arcs() -> void:
+func _draw_arcs(list: PackedInt32Array) -> void:
 	var used := 0
 	var used_elite := 0
-	for i in _n:
+	for i in list:
 		var k := _kind[i]
 		if _arc_cos[k] <= -1.0 or (_state[i] != State.WINDUP and _state[i] != State.STRIKE):
 			continue

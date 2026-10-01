@@ -26,7 +26,12 @@ const BIOMES := preload("res://scripts/world/biomes.gd")
 
 const POP_LIFE := 0.75
 const POP_RISE := 70.0
-const MAX_POPUPS := 36
+## Etappe 4 Teil E: at most this many numbers on screen (phones fewer); a hit
+## on the same spot within MERGE_AGE adds to the young number instead.
+const MAX_POPUPS := 24
+const MAX_POPUPS_MOBILE := 16
+const MERGE_AGE := 0.12
+const MERGE_REACH := 0.35
 const RESULT_DELAY := 0.9
 ## Stage 4: a won run shows its result a little later (the last boss sinks).
 const RESULT_DELAY_WIN := 1.8
@@ -50,6 +55,12 @@ var _top: Control
 var _overlay: Control
 var _top_key := []
 var _overlay_shown := false
+var _overhead: Control
+var _overhead_key := []
+var _numbers: Control
+var _max_popups := MAX_POPUPS
+var _numbers_shown := false
+var _bars: Array[Control] = []
 var _fade_shown := false
 var _evolved_hooked := false
 
@@ -61,6 +72,19 @@ func _ready() -> void:
 	# top of everything (its own layer).
 	_top = _layer("Top", _draw_top)
 	_overlay = _layer("Result", _draw_result)
+	# Teil E: the hero's overhead bar is its own item that only moves (no
+	# repaint) unless health, shells or the reload change; the numbers sit above
+	# it (same order as before: bars, overhead, numbers, top bar, result).
+	_overhead = _layer("Overhead", _draw_overhead_layer)
+	_overhead.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_overhead.size = Vector2.ZERO
+	_numbers = _layer("Numbers", _draw_numbers)
+	move_child(_overhead, 0)
+	move_child(_numbers, 1)
+	_max_popups = MAX_POPUPS_MOBILE if OS.has_feature("mobile") else MAX_POPUPS
+	# After Main (100) has moved the camera: the overhead item sits on the hero
+	# of this frame.
+	process_priority = 200
 
 
 func _layer(layer_name: String, painter: Callable) -> Control:
@@ -78,15 +102,32 @@ func _layer(layer_name: String, painter: Callable) -> Control:
 func add_damage(at: Vector3, amount: float, kind: int, killed: bool) -> void:
 	if amount < 0.5 or not SESSION.flag("damage_numbers"):
 		return
-	if popups.size() >= MAX_POPUPS:
+	var tint := KILL if killed else (HEAVY if kind == T.Kind.BROCKEN else NORMAL)
+	var size := 34 if not killed else 44
+	var spot := at + Vector3.UP * 1.3
+	# A young number on the same spot (several weapons on one enemy) grows.
+	for index in range(popups.size() - 1, -1, -1):
+		var old: Dictionary = popups[index]
+		if float(old.age) > MERGE_AGE:
+			break
+		var to: Vector3 = old.at
+		if absf(to.x - spot.x) < MERGE_REACH and absf(to.z - spot.z) < MERGE_REACH:
+			var total := float(old.amount) + amount
+			old.amount = total
+			old.text = str(int(round(total)))
+			if killed:
+				old.color = KILL
+			elif old.color == NORMAL:
+				old.color = tint
+			old.size = maxi(int(old.size), size + (10 if total >= 30.0 else 0))
+			return
+	if popups.size() >= _max_popups:
 		popups.pop_front()
 	_jitter += 1
 	var jitter := Vector2(fposmod(float(_jitter) * 0.618034, 1.0) * 90.0 - 45.0, fposmod(float(_jitter) * 0.381966, 1.0) * 36.0 - 18.0)
-	var tint := KILL if killed else (HEAVY if kind == T.Kind.BROCKEN else NORMAL)
-	var size := 34 if not killed else 44
 	if amount >= 30.0:
 		size += 10
-	popups.append({"at": at + Vector3.UP * 1.3, "text": str(int(round(amount))), "age": 0.0, "color": tint, "size": size, "jitter": jitter})
+	popups.append({"at": spot, "text": str(int(round(amount))), "amount": amount, "age": 0.0, "color": tint, "size": size, "jitter": jitter})
 
 
 ## strength 0..1 (a Brocken slam is 1, a Wichtel bite about 0.6).
@@ -108,6 +149,11 @@ func _process(delta: float) -> void:
 		if float(popups[index].age) >= POP_LIFE:
 			popups.remove_at(index)
 	queue_redraw()
+	if not popups.is_empty() or _numbers_shown:
+		_numbers_shown = not popups.is_empty()
+		_numbers.queue_redraw()
+	_update_overhead()
+	_update_bars()
 	if battle != null and battle.hero != null:
 		var key := [int(ceil(battle.hero.health)), int(ceil(battle.hero.max_health)), int(battle.run.elapsed), battle.run.kills, size, battle.run.level, int(battle.run.xp_share() * 200.0), battle.run.gold]
 		if key != _top_key:
@@ -177,9 +223,6 @@ func _draw() -> void:
 	_draw_vignette()
 	if camera != null:
 		_draw_cocoon_tags(camera)
-		_draw_brocken_bars(camera)
-		_draw_overhead(camera)
-		_draw_popups(camera)
 
 
 # ---------------------------------------------------------------- top bar
@@ -268,19 +311,61 @@ func _draw_overhead(camera: Camera3D) -> void:
 	if hero.is_dead():
 		return
 	var at := _screen(camera, hero.global_position + Vector3.UP * 3.6)
-	if not at.is_finite():
+	if at.is_finite():
+		_paint_overhead(self, at)
+
+
+## Teil E: places the overhead item over the hero (moving it costs nothing) and
+## repaints it only when what it shows changes.
+func _update_overhead() -> void:
+	if battle == null or battle.hero == null or _overhead == null:
 		return
+	var hero: Node3D = battle.hero
+	var camera := get_viewport().get_camera_3d()
+	var at := Vector2.INF
+	if camera != null and not hero.is_dead():
+		at = _screen(camera, hero.global_position + Vector3.UP * 3.6)
+	_overhead.visible = at.is_finite()
+	if not _overhead.visible:
+		return
+	_overhead.position = at
+	var gun: Node = battle.shotgun
+	var key := [hero.health, hero.max_health, int(gun.max_shells()), int(gun.shells) if gun.get("shells") != null else 0, gun.reload_progress()]
+	if key != _overhead_key:
+		_overhead_key = key
+		_overhead.queue_redraw()
+
+
+func _update_bars() -> void:
+	if battle == null or battle.hero == null:
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera != null:
+		_draw_brocken_bars(camera)
+	else:
+		for bar in _bars:
+			bar.visible = false
+
+
+func _draw_overhead_layer(c: CanvasItem) -> void:
+	if battle.hero.is_dead():
+		return
+	_paint_overhead(c, Vector2.ZERO)
+
+
+func _paint_overhead(c: CanvasItem, at: Vector2) -> void:
+	var hero: Node3D = battle.hero
 	var share: float = clampf(hero.health / hero.max_health, 0.0, 1.0)
 	var bar := Rect2(at - Vector2(78, 11), Vector2(110, 22))
-	Kit.bar(self, bar, share, "danger" if share < 0.3 else "action")
+	Kit.bar(c, bar, share, "danger" if share < 0.3 else "action")
 	# Shell pips: loaded = red shell with brass cap; reload fills them back in.
 	var gun: Node = battle.shotgun
 	var progress: float = gun.reload_progress()
 	for k in int(gun.max_shells()):
 		var pip := Rect2(at + Vector2(40 + k * 22, -16), Vector2(17, 28))
-		Kit.rrect(self, Rect2(pip.position + Vector2(0, 3), pip.size), 6.0, UiStyle.BRAWL_INK_SOFT)
-		Kit.rrect(self, pip.grow(3.0), 8.0, UiStyle.BRAWL_INK)
-		Kit.rrect(self, pip, 6.0, UiStyle.BRAWL_WELL)
+		Kit.rrect(c, Rect2(pip.position + Vector2(0, 3), pip.size), 6.0, UiStyle.BRAWL_INK_SOFT)
+		Kit.rrect(c, pip.grow(3.0), 8.0, UiStyle.BRAWL_INK)
+		Kit.rrect(c, pip, 6.0, UiStyle.BRAWL_WELL)
 		var loaded: bool = k < int(gun.shells)
 		var fill := 1.0 if loaded else 0.0
 		if progress >= 0.0:
@@ -288,11 +373,10 @@ func _draw_overhead(camera: Camera3D) -> void:
 		if fill > 0.0:
 			var h := pip.size.y * fill
 			var body := Rect2(Vector2(pip.position.x, pip.end.y - h), Vector2(pip.size.x, h))
-			Kit.rrect(self, body, 6.0, Color("e8362c"))
+			Kit.rrect(c, body, 6.0, Color("e8362c"))
 			var cap := Rect2(Vector2(pip.position.x, pip.end.y - minf(h, 9.0)), Vector2(pip.size.x, minf(h, 9.0)))
-			Kit.rrect(self, cap, 4.0, Color("ffc84a"))
-			Kit.rrect(self, Rect2(body.position + Vector2(4, 3), Vector2(5, maxf(0.0, body.size.y - 14.0))), 2.0, Color(1, 1, 1, 0.45))
-
+			Kit.rrect(c, cap, 4.0, Color("ffc84a"))
+			Kit.rrect(c, Rect2(body.position + Vector2(4, 3), Vector2(5, maxf(0.0, body.size.y - 14.0))), 2.0, Color(1, 1, 1, 0.45))
 
 # Price pill over closed cocoons (map: gold price, red when too expensive;
 # dropped ones: GRATIS) and a fill ring while the hero stands in the ring.
@@ -325,25 +409,59 @@ func _draw_cocoon_tags(camera: Camera3D) -> void:
 			Kit.bar(self, Rect2(pill.position + Vector2(8.0, pill.size.y + 6.0), Vector2(pill.size.x - 16.0, 14.0)), hold, "loot")
 
 
+## Health bars over damaged Brocken. Teil E: each bar is a pooled item that is
+## only moved; it repaints when its share changes (a bar costs ~40 us to
+## paint). Only the Brocken indices horde.gd collected this step are visited
+## (champions draw their own gold bar in hud_pressure.gd).
 func _draw_brocken_bars(camera: Camera3D) -> void:
 	var horde: Node3D = battle.horde
 	var max_hp := float(T.enemy(T.Kind.BROCKEN).hp)
-	for i in horde.count():
-		if horde.kind_of(i) != T.Kind.BROCKEN:
-			continue
-		# Champions draw their own gold bar (hud_pressure.gd).
-		if horde.has_method("is_elite") and horde.is_elite(i):
+	var view := Rect2(Vector2.ZERO, size).grow(60.0)
+	var n: int = horde.count()
+	var list: PackedInt32Array = horde.get("brocken_list") if horde.get("brocken_list") != null else PackedInt32Array()
+	var used := 0
+	for i in list:
+		if i >= n or horde.kind_of(i) != T.Kind.BROCKEN or horde.is_elite(i):
 			continue
 		var hp: float = horde.health_of(i)
 		if hp >= max_hp:
 			continue
 		var at := _screen(camera, horde.position_of(i) + Vector3.UP * 2.2)
-		if not at.is_finite() or not Rect2(Vector2.ZERO, size).grow(60.0).has_point(at):
+		if not at.is_finite() or not view.has_point(at):
 			continue
-		Kit.bar(self, Rect2(at - Vector2(55, 9), Vector2(110, 18)), hp / max_hp, "danger")
+		if used >= _bars.size():
+			var item := Control.new()
+			item.name = "BrockenBar%d" % used
+			item.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			item.set_meta("share", -1.0)
+			add_child(item)
+			move_child(item, 0)
+			item.draw.connect(func() -> void:
+				Kit.bar(item, Rect2(Vector2(-55, -9), Vector2(110, 18)), float(item.get_meta("share")), "danger"))
+			_bars.append(item)
+		var bar := _bars[used]
+		used += 1
+		bar.visible = true
+		bar.position = at
+		var share := hp / max_hp
+		if not is_equal_approx(float(bar.get_meta("share")), share):
+			bar.set_meta("share", share)
+			bar.queue_redraw()
+	for index in range(used, _bars.size()):
+		_bars[index].visible = false
+
+func _draw_numbers(c: CanvasItem) -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera != null:
+		_draw_popups(camera, c)
 
 
-func _draw_popups(camera: Camera3D) -> void:
+## Damage numbers: one outline pass (a little lower, so it doubles as the drop
+## shadow) and the fill, drawn at a palette size and scaled (Teil E: was a
+## shadow, an outline and the fill per number).
+func _draw_popups(camera: Camera3D, c: CanvasItem = self) -> void:
+	var face := UiStyle.display_font()
+	var ink := UiStyle.outline_color()
 	for popup in popups:
 		var at := _screen(camera, popup.at)
 		if not at.is_finite():
@@ -354,8 +472,16 @@ func _draw_popups(camera: Camera3D) -> void:
 		var alpha := clampf((1.0 - t) / 0.35, 0.0, 1.0)
 		var where: Vector2 = at + popup.jitter - Vector2(0.0, POP_RISE * (1.0 - pow(1.0 - t, 2.0)))
 		var tint: Color = popup.color
-		UiStyle.text_px(self, String(popup.text), where, float(popup.size) * grow, Color(tint, alpha), true, 9)
-
+		var text := String(popup.text)
+		var px := float(popup.size) * grow
+		var step := UiStyle.size_step(px)
+		var k := px / step
+		var width := face.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, step).x * k
+		c.draw_set_transform(where - Vector2(width * 0.5, 0.0), 0.0, Vector2(k, k))
+		var drop := Vector2(0.0, maxf(2.0, roundf(step * 0.06)))
+		c.draw_string_outline(face, drop, text, HORIZONTAL_ALIGNMENT_LEFT, -1, step, 9, Color(ink, alpha))
+		c.draw_string(face, Vector2.ZERO, text, HORIZONTAL_ALIGNMENT_LEFT, -1, step, UiStyle.tone(Color(tint, alpha)))
+	c.draw_set_transform(Vector2.ZERO)
 
 # ---------------------------------------------------------------- overlays
 

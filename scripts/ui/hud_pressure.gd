@@ -214,8 +214,11 @@ func _crown(center: Vector2, r: float) -> void:
 
 func _draw_elite_bars(camera: Camera3D) -> void:
 	var horde: Node3D = pressure.horde
-	for i in horde.count():
-		if not horde.is_elite(i):
+	var n: int = horde.count()
+	# Teil E: the champion indices horde.gd collected this step.
+	var list: PackedInt32Array = horde.get("elite_list") if horde.get("elite_list") != null else PackedInt32Array()
+	for i in list:
+		if i >= n or not horde.is_elite(i):
 			continue
 		var p: Vector3 = horde.position_of(i)
 		if camera.is_position_behind(p):

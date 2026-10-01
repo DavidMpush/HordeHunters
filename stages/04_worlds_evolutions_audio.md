@@ -196,3 +196,38 @@ Besitzt:
   - FPS-Anzeige ablesen.
   - Wechselt „HOCH“ zu „MITTEL auto“?
   - Bleibt „Rest“ hoch, obwohl „Skript“ niedrig ist?
+
+## Umsetzung Teil E – CPU (02.10.)
+Ziel: GDScript-Zeit pro Frame senken, ohne Regeln oder Optik zu ändern. Gemessen mit `tools/perf.ps1` (PC, RTX 5070, 900×1600, 200 Gegner, je Held 2 Läufe à 20 s, Mittelwert; Rauschen ±10 %).
+
+| | vorher Brann / Brine | nachher Brann / Brine |
+|---|---|---|
+| Frame Ø | 13,4 / 12,6 ms | 8,3 / 8,3 ms |
+| Frame p95 / p99 | 20,6 / 24,3 ms – 19,5 / 22,0 ms | 12,8 / 14,6 ms – 12,5 / 14,8 ms |
+| Skript gesamt (`_process`) | 6,6 / 6,6 ms | 4,5 / 4,7 ms |
+| `battle.tick` | 6,1 / 6,1 ms | 4,0 / 4,2 ms |
+| `horde.step` (davon Zeichnen) | 4,2 (0,88) / 4,0 (0,84) ms | 2,8 (0,41) / 2,7 (0,41) ms |
+| Loot (`progression.step`) | 0,6 ms | 0,2 ms |
+| HUD: Brocken-Leisten / Schadenszahlen | 0,73 / 0,29 ms | 0,03 / 0,13 ms |
+| Draw Calls Ø | 252 / 233 | 240 / 224 |
+
+**Umgesetzt:**
+- `horde.gd`:
+  - Wandkollision mit Freiraum-Cache: Bei einer Probe wird der freie Abstand zu Wänden (Distanzfeld), Steinen und Kartenrand gemessen. Solange der Gegner in diesem Kreis bleibt, entfällt `resolve_motion()` (vorher ~60 Aufrufe/Frame, jetzt ~20; Wandanteil 1,3 → 0,3 ms). Treibsand/Flachwasser bremsen nahe Gegner weiter wie bisher.
+  - Gegner außerhalb des Bildes (Kamerablick + 4 m), weiter als 9 m und im Anlauf laufen jeden 2. Frame mit der gesammelten Zeit. Gleiche Bewegung, halbe Kosten; im Bench wirkt das kaum, weil dort alle 200 Gegner im Bild stehen. Weit entfernte Gegner (> 16 m) fragen das Flussfeld halb so oft ab.
+  - Zeichnen in einem Durchlauf statt einem pro Art; Pose-Mathematik inline (numerisch gleich `_pose()`); Gegner außerhalb des Bildes bekommen keine Instanz; Instanzfarbe nur einmal gesetzt.
+  - Der Held-lebt-Check wird einmal pro Frame statt pro Gegner gemacht. Ruhende Leichen prüfen keine Wände mehr.
+  - `brocken_list` / `elite_list` für die HUD-Leisten.
+- `loot.gd`: Jedes Item hat feste Slots (Glühen = id, Edelstein/Münze eigener Bereich); pro Frame werden nur bewegte Items neu geschrieben, ohne neue Arrays.
+- HUD:
+  - Brocken-Leisten sind gepoolte Elemente, die nur verschoben und bei geänderter LP neu gezeichnet werden. Für die Overhead-Leiste über dem Helden gilt dasselbe: Sie wird nur bei geänderter LP, Patronenzahl oder Nachladen neu gezeichnet.
+  - Schadenszahlen: höchstens 24 (Handy 16), Treffer auf dieselbe Stelle innerhalb von 0,12 s werden zusammengezählt. Je Zahl ein Konturpass statt Schatten plus Kontur; der Schatten entsteht durch eine leicht nach unten versetzte Kontur.
+  - `ui_kit_brawl.gd`: StyleBoxen je Farbe/Radius/Rand gecacht (vorher 5 Setter mit `changed`-Signal pro Aufruf), Verlaufspolygone von `fade_rrect` gecacht und nur verschoben.
+- Getestet und verworfen: `fx_batch.gd` über einen Puffer statt `set_instance_*`. Das war langsamer (0,49 statt 0,42 ms), weil 16 GDScript-Schreibzugriffe mehr kosten als 2 native Aufrufe. Aus demselben Grund setzt `horde.gd` die Instanzen jetzt über native Aufrufe statt über den Puffer (0,47 → 0,40 ms).
+
+**Optik:** In den Captures (`fight`, `boxer`, `pressure`, `worlds`, `progress_xpbar`) ist das Bild gleich. Die Schadenszahlen haben einen etwas schwächeren Schlagschatten. Bei mehreren Waffen auf denselben Gegner erscheint eine zusammengezählte Zahl statt mehrerer.
+
+**Offen:**
+- `horde.step` liegt im Bench bei −33 %, nicht −50 %. Der Rest verteilt sich auf Zustandslogik inkl. Flussfeld (~0,5 ms; `arena.flow_direction` kostet ~14 µs pro Aufruf), Trennung (~0,4 ms), Bewegung/Wände (~0,4 ms), Animation (~0,2 ms), Leichen (~0,15 ms) und Zeichnen (0,4 ms).
+- Nächste Hebel liegen in `arena.gd` (Flussfeld-Abfrage, `_push_out` über 9 Chunks).
+- `tests/capture_progress.gd` bricht beim Level-up-Bild ab (`progress._shotgun_entry` fehlt). Das war schon vorher kaputt und hat mit Teil E nichts zu tun.

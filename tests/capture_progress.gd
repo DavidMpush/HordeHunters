@@ -81,7 +81,7 @@ func _capture() -> void:
 	progress.ranks["damage"] = 1
 	progress.units["damage"] = 1.0
 	progress._cache.clear()
-	progression.offers = [progress._shotgun_entry("rare"), progress.stat_entry("damage", "epic"), progress.stat_entry("magnet", "common")]
+	progression.offers = [progress.weapon_entry("shotgun", "rare"), progress.stat_entry("damage", "epic"), progress.stat_entry("magnet", "common")]
 	progression.choice.open("level", progression.offers, {"level": run.level, "rerolls": progress.rerolls})
 	await _settle(50)
 	await _save("preview_progress_levelup")
@@ -101,7 +101,7 @@ func _capture() -> void:
 	await _save("preview_progress_cocoon")
 	progression.choose(2)
 	# A short fight, a few more picks, then death and the result.
-	for pick in [progress.stat_entry("crit", "uncommon"), progress.stat_entry("speed", "common"), progress._shotgun_entry("common")]:
+	for pick in [progress.stat_entry("crit", "uncommon"), progress.stat_entry("speed", "common"), progress.weapon_entry("shotgun", "common")]:
 		progress.apply(pick, "level", run.elapsed)
 	progress.apply(progress.relic_entry("lockstein"), "map", run.elapsed)
 	progress.apply(progress.relic_entry("dornenweste"), "free", run.elapsed)

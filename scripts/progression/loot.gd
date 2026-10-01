@@ -59,6 +59,13 @@ var _dirty := true
 var _gems: MultiMeshInstance3D
 var _coins: MultiMeshInstance3D
 var _glow: MultiMeshInstance3D
+var _gem_buffer := PackedFloat32Array()
+var _coin_buffer := PackedFloat32Array()
+var _glow_buffer := PackedFloat32Array()
+var _capacity := 0
+var _slot := PackedInt32Array()
+var _slot_free: Array = [[], []]
+var _slot_top: Array = [0, 0]
 
 
 func _init() -> void:
@@ -71,6 +78,8 @@ func _ready() -> void:
 	var quad := QuadMesh.new()
 	quad.size = Vector2.ONE
 	_glow = _make_layer("Glow", quad, _glow_material())
+	_ensure_capacity(64)
+	_redraw()
 
 
 func setup(arena_node: Node3D) -> void:
@@ -81,6 +90,9 @@ func clear() -> void:
 	pos.clear(); start.clear(); goal.clear(); value.clear(); sort.clear()
 	state.clear(); timer.clear(); speed.clear(); phase.clear()
 	_free.clear()
+	_slot.clear()
+	_slot_free = [[], []]
+	_slot_top = [0, 0]
 	lying = 0
 	moving = 0
 	_dirty = true
@@ -132,9 +144,11 @@ func _drop(kind: int, amount: float, from: Vector3, landing: Vector3) -> int:
 			merged += 1
 			spawned += 1
 			_dirty = true
+			_write(host)
 			return host
 	var id := _alloc()
 	sort[id] = kind
+	_slot[id] = _take_slot(kind)
 	value[id] = amount
 	phase[id] = rng.randf()
 	start[id] = Vector3(from.x, 0.7, from.z)
@@ -146,6 +160,7 @@ func _drop(kind: int, amount: float, from: Vector3, landing: Vector3) -> int:
 	moving += 1
 	spawned += 1
 	_dirty = true
+	_write(id)
 	return id
 
 
@@ -156,6 +171,7 @@ func _alloc() -> int:
 	pos.append(Vector3.ZERO); start.append(Vector3.ZERO); goal.append(Vector3.ZERO)
 	value.append(0.0); sort.append(0); state.append(State.FREE)
 	timer.append(0.0); speed.append(0.0); phase.append(0.0)
+	_slot.append(-1)
 	return id
 
 
@@ -164,6 +180,22 @@ func _release(id: int) -> void:
 	value[id] = 0.0
 	_free.append(id)
 	_dirty = true
+	_write(id)
+	var own := _slot[id]
+	if own >= 0:
+		_zero(_gem_buffer if sort[id] == Sort.XP else _coin_buffer, own * STRIDE)
+		(_slot_free[sort[id]] as Array).append(own)
+		_slot[id] = -1
+
+
+## Gems and coins draw from their own slot ranges (a coin layer never walks
+## over the gem slots).
+func _take_slot(kind: int) -> int:
+	var free: Array = _slot_free[kind]
+	if not free.is_empty():
+		return free.pop_back()
+	_slot_top[kind] = int(_slot_top[kind]) + 1
+	return int(_slot_top[kind]) - 1
 
 
 func _nearest_lying(at: Vector3, reach: float, kind: int) -> int:
@@ -207,6 +239,7 @@ func step(delta: float, centre: Vector3, radius: float = MAGNET_RADIUS) -> Dicti
 					moving -= 1
 					lying += 1
 				_dirty = true
+				_write(id)
 			State.LYING:
 				var dx: float = pos[id].x - centre.x
 				var dz: float = pos[id].z - centre.z
@@ -216,6 +249,7 @@ func step(delta: float, centre: Vector3, radius: float = MAGNET_RADIUS) -> Dicti
 					lying -= 1
 					moving += 1
 					_dirty = true
+					_write(id)
 			State.FLY:
 				var here: Vector3 = pos[id]
 				var offset := aim - here
@@ -233,9 +267,11 @@ func step(delta: float, centre: Vector3, radius: float = MAGNET_RADIUS) -> Dicti
 					_release(id)
 				else:
 					pos[id] = here + offset / distance * travel
+					_write(id)
 				_dirty = true
 	if _dirty:
-		_redraw()
+		_dirty = false
+		_commit_all()
 	return result
 
 
@@ -297,49 +333,113 @@ func nearest_lying(at: Vector3, reach: float = 40.0, kind: int = -1) -> Vector3:
 # ---------------------------------------------------------------- drawing
 
 func _redraw() -> void:
+	# Full rewrite of every slot (clear, take_all); per step only changed slots.
 	_dirty = false
 	if _gems == null:
 		return
-	var gems := PackedFloat32Array()
-	var coins := PackedFloat32Array()
-	var glows := PackedFloat32Array()
+	_ensure_capacity(pos.size())
 	for id in pos.size():
-		if state[id] == State.FREE:
-			continue
-		var flying := 1.0 if state[id] == State.FLY else (0.5 if state[id] == State.HOP else 0.0)
+		_write(id)
+	_commit_all()
+
+
+## Teil E (CPU): every item keeps fixed slots: its id in the glow MultiMesh and
+## a slot of its sort's own range in the gem or coin MultiMesh; freed slots are
+## zero-scaled.
+## A step only rewrites the items that moved or changed and uploads each
+## buffer once (no per-frame arrays).
+func _ensure_capacity(wanted: int) -> void:
+	if wanted <= _capacity:
+		return
+	var grown := maxi(64, _capacity)
+	while grown < wanted:
+		grown *= 2
+	_capacity = grown
+	for buffer_index in 3:
+		var buffer: PackedFloat32Array = [_gem_buffer, _coin_buffer, _glow_buffer][buffer_index]
+		var before := buffer.size()
+		buffer.resize(grown * STRIDE)
+		for index in range(before, buffer.size()):
+			buffer[index] = 0.0
+		match buffer_index:
+			0: _gem_buffer = buffer
+			1: _coin_buffer = buffer
+			2: _glow_buffer = buffer
+	for node in [_gems, _coins, _glow]:
+		(node as MultiMeshInstance3D).multimesh.instance_count = grown
+
+
+## Writes item `id` into its slot (zeroes the slots it does not use).
+func _write(id: int) -> void:
+	if _gems == null:
+		return
+	_ensure_capacity(pos.size())
+	var k := id * STRIDE
+	# Packed arrays are shared by reference: the helpers write in place.
+	var gems := _gem_buffer
+	var coins := _coin_buffer
+	var glows := _glow_buffer
+	var st := state[id]
+	var own := _slot[id] * STRIDE if id < _slot.size() else -1
+	if st == State.FREE:
+		_zero(glows, k)
+	elif own >= 0:
+		var flying := 1.0 if st == State.FLY else (0.5 if st == State.HOP else 0.0)
+		var at := pos[id]
+		var ph := phase[id]
 		var tint: Color
 		var size: float
 		if sort[id] == Sort.XP:
 			var tier := tier_of(value[id])
 			tint = XP_COLORS[tier]
 			size = XP_SIZES[tier]
-			gems.append_array(_item(pos[id], size, size * (1.0 + 0.3 * flying), tint, phase[id], flying))
+			_put(gems, own, at, size, size * (1.0 + 0.3 * flying), tint, ph, flying, 0.0)
 		else:
 			tint = GOLD_COLOR
 			size = GOLD_SIZE
-			coins.append_array(_item(pos[id], size, size, tint, phase[id], flying, 1.0))
+			_put(coins, own, at, size, size, tint, ph, flying, 1.0)
 		var glow := size * (1.7 + 0.5 * flying)
-		glows.append_array(_item(pos[id] + Vector3(0.0, size * 0.45, 0.0), glow, glow, tint, phase[id], flying))
-	_commit(_gems, gems)
-	_commit(_coins, coins)
-	_commit(_glow, glows)
+		_put(glows, k, Vector3(at.x, at.y + size * 0.45, at.z), glow, glow, tint, ph, flying, 0.0)
 
 
-## One instance: transform (rows), colour, custom (phase, flight, coin).
-static func _item(at: Vector3, width: float, height: float, tint: Color, ph: float, flying: float, coin := 0.0) -> PackedFloat32Array:
-	return PackedFloat32Array([width, 0.0, 0.0, at.x, 0.0, height, 0.0, at.y, 0.0, 0.0, width, at.z,
-		tint.r, tint.g, tint.b, 1.0, ph, flying, coin, 0.0])
+## One instance at offset k: transform (rows), colour, custom (phase, flight, coin).
+static func _put(buffer: PackedFloat32Array, k: int, at: Vector3, width: float, height: float, tint: Color, ph: float, flying: float, coin: float) -> void:
+	buffer[k] = width
+	buffer[k + 1] = 0.0
+	buffer[k + 2] = 0.0
+	buffer[k + 3] = at.x
+	buffer[k + 4] = 0.0
+	buffer[k + 5] = height
+	buffer[k + 6] = 0.0
+	buffer[k + 7] = at.y
+	buffer[k + 8] = 0.0
+	buffer[k + 9] = 0.0
+	buffer[k + 10] = width
+	buffer[k + 11] = at.z
+	buffer[k + 12] = tint.r
+	buffer[k + 13] = tint.g
+	buffer[k + 14] = tint.b
+	buffer[k + 15] = 1.0
+	buffer[k + 16] = ph
+	buffer[k + 17] = flying
+	buffer[k + 18] = coin
+	buffer[k + 19] = 0.0
 
 
-func _commit(node: MultiMeshInstance3D, buffer: PackedFloat32Array) -> void:
-	var multimesh := node.multimesh
-	var used := buffer.size() / STRIDE
-	if multimesh.instance_count < used:
-		multimesh.instance_count = maxi(used, multimesh.instance_count * 2)
-	buffer.resize(multimesh.instance_count * STRIDE)
-	multimesh.buffer = buffer
-	multimesh.visible_instance_count = used
-	node.visible = used > 0
+static func _zero(buffer: PackedFloat32Array, k: int) -> void:
+	if buffer[k] == 0.0 and buffer[k + 5] == 0.0:
+		return
+	for c in 12:
+		buffer[k + c] = 0.0
+
+
+func _commit_all() -> void:
+	for pair in [[_gems, _gem_buffer, int(_slot_top[Sort.XP])], [_coins, _coin_buffer, int(_slot_top[Sort.GOLD])], [_glow, _glow_buffer, pos.size()]]:
+		var node: MultiMeshInstance3D = pair[0]
+		var used: int = pair[2]
+		node.multimesh.buffer = pair[1]
+		node.multimesh.visible_instance_count = used
+		node.visible = used > 0 and count() > 0
 
 func _make_layer(layer_name: String, mesh: Mesh, material: Material) -> MultiMeshInstance3D:
 	var multimesh := MultiMesh.new()
