@@ -8,10 +8,20 @@ extends "res://scripts/weapons/weapon.gd"
 #   outwards by mass, fireball, ring, dust, sparks, camera shake.
 #   Rank 1 base, 2 more damage + faster, 3 radius +25 %, 4 more damage +
 #   faster, 5 two grenades, 6 three. Damage x power_factor().
+#   Relic Brandsatz: radius x grenade_radius_mult. Evolution "Napalm" (partner
+#   Brandsatz): blast +20 % and every blast leaves a burning pool for
+#   NAPALM_LIFE s that burns everything inside every NAPALM_TICK s.
 
 signal exploded(at: Vector3, hits: int, kills: int)
 
 const FX := preload("res://scripts/weapons/weapon_fx.gd")
+const STREAKS := preload("res://scripts/weapons/streaks.gd")
+const NAPALM_RADIUS := 1.2
+const NAPALM_LIFE := 3.0
+const NAPALM_TICK := 0.4
+const NAPALM_DAMAGE := 7.0
+const NAPALM_POOLS := 6
+const NAPALM_COLOR := Color(1.0, 0.36, 0.06, 0.42)
 
 const COOLDOWN := 3.2
 const AIM_RANGE := 9.0
@@ -27,6 +37,10 @@ var throws := 0
 var explosions := 0
 var last_hits: Dictionary = {}
 var fx: Node3D
+## Napalm: burning pools [{"at", "radius", "left", "tick"}], burn ticks done.
+var burns: Array[Dictionary] = []
+var burn_ticks := 0
+var flames: Node3D
 var _root: Node3D
 var _bombs: Array[Node3D] = []
 var _marks: Array[MeshInstance3D] = []
@@ -42,6 +56,9 @@ func _ready() -> void:
 	fx = FX.new()
 	fx.name = "GrenadeFx"
 	add_child(fx)
+	flames = STREAKS.new()
+	flames.name = "Napalm"
+	add_child(flames)
 	_root = Node3D.new()
 	_root.name = "Grenades"
 	add_child(_root)
@@ -54,13 +71,17 @@ func reset() -> void:
 	throws = 0
 	explosions = 0
 	last_hits = {}
+	burns.clear()
+	burn_ticks = 0
 	if fx != null:
 		fx.clear()
+	if flames != null:
+		flames.clear()
 	_draw()
 
 
 func radius() -> float:
-	return RADIUS * (1.25 if rank() >= 3 else 1.0)
+	return RADIUS * (1.25 if rank() >= 3 else 1.0) * _stat("grenade_radius_mult") * (NAPALM_RADIUS if evolved() else 1.0)
 
 
 func cooldown() -> float:
@@ -78,7 +99,11 @@ func count() -> int:
 func step(delta: float) -> void:
 	if fx != null:
 		fx.step(delta)
+	if flames != null:
+		flames.step(delta)
 	_fly(delta)
+	if not burns.is_empty() and horde != null:
+		_burn(delta)
 	if not can_act():
 		_draw()
 		return
@@ -185,8 +210,46 @@ func explode(at: Vector3) -> int:
 	_shake(0.22)
 	_sound("shot", 0.62)
 	_sound("slam", 0.9)
+	if evolved():
+		_ignite(at, r * 0.75)
 	exploded.emit(at, hits.size(), killed)
 	return killed
+
+
+# Napalm: a burning pool where the grenade went off.
+func _ignite(at: Vector3, pool_radius: float) -> void:
+	if burns.size() >= NAPALM_POOLS:
+		burns.pop_front()
+	burns.append({"at": Vector3(at.x, 0.0, at.z), "radius": pool_radius, "left": NAPALM_LIFE, "tick": NAPALM_TICK * 0.5})
+	if flames != null:
+		flames.pool(at, pool_radius, NAPALM_COLOR, NAPALM_LIFE)
+
+
+# Burning pools age; every NAPALM_TICK s each one burns what stands in it.
+func _burn(delta: float) -> void:
+	for index in range(burns.size() - 1, -1, -1):
+		var pool: Dictionary = burns[index]
+		pool.left -= delta
+		pool.tick -= delta
+		if float(pool.left) <= 0.0:
+			burns.remove_at(index)
+			continue
+		if float(pool.tick) > 0.0:
+			continue
+		pool.tick = NAPALM_TICK
+		var at: Vector3 = pool.at
+		var hits := {}
+		for i in enemies_in_circle(at, float(pool.radius)):
+			var p: Vector3 = horde.position_of(i)
+			var out := Vector3(p.x - at.x, 0.0, p.z - at.z)
+			hits[i] = {"damage": roll_damage(NAPALM_DAMAGE * power_factor()), "dir": out.normalized() if out.length_squared() > 0.0001 else Vector3.FORWARD, "knock": 0.0}
+		burn_ticks += 1
+		if flames != null:
+			for k in 2:
+				var off := Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0)) * float(pool.radius) * 0.6
+				flames.orb(at + off + Vector3.UP * 0.35, 0.45, Color(1.0, 0.6, 0.15, 0.85), 0.35)
+		if not hits.is_empty():
+			apply(hits)
 
 
 func _draw() -> void:

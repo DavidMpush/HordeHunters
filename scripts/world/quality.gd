@@ -59,25 +59,64 @@ const PRESETS := {
 	},
 }
 
+## Etappe 4 Teil D: phones render the 3D world below the screen resolution
+## (fill rate: the S25 has 1080 x 2340 = 2.5 MP; the HUD stays sharp). The
+## desktop look of every tier is unchanged.
+const MOBILE_SCALE := {Tier.LOW: 0.6, Tier.MEDIUM: 0.7, Tier.HIGH: 0.8}
+## Adaptive step-down (quality_governor.gd): average frame time over WINDOW
+## seconds above LIMIT_MS (and not only script time) lowers the tier by one.
+const ADAPT_WINDOW := 3.0
+const ADAPT_LIMIT_MS := 20.0
+
 ## Profile / settings value overriding the heuristic (-1 = automatic).
 static var override_tier := -1
 static var _detected := -1
+## Tier the governor stepped down to this session (-1 = none).
+static var adaptive_tier := -1
+## Tests and the bench: treat this machine as a phone (scale, adaptive).
+static var force_mobile := false
 
 
-## Tier the game should use: override, else the (once detected) heuristic.
+## Tier the game should use: override, else the (once detected) heuristic,
+## lowered by the adaptive governor.
 static func current_tier() -> int:
 	if override_tier >= 0:
 		return clampi(override_tier, Tier.LOW, Tier.HIGH)
 	if _detected < 0:
 		_detected = choose_tier(device_info())
+	if adaptive_tier >= 0:
+		return mini(_detected, adaptive_tier)
 	return _detected
 
 
-## Copy of the switches of a tier (callers may change it).
+static func is_mobile() -> bool:
+	return force_mobile or OS.has_feature("mobile")
+
+
+## The governor may step down (automatic tier on a phone).
+static func adaptive_enabled() -> bool:
+	return override_tier < 0 and is_mobile()
+
+
+## One tier lower for the rest of the session. False at the bottom.
+static func step_down() -> bool:
+	var tier := current_tier()
+	if tier <= Tier.LOW:
+		return false
+	adaptive_tier = tier - 1
+	return true
+
+
+## Copy of the switches of a tier (callers may change it). Phones get the
+## lower 3D render scale of MOBILE_SCALE.
 static func settings(tier: int = -1) -> Dictionary:
 	if tier < 0:
 		tier = current_tier()
-	return (PRESETS[clampi(tier, Tier.LOW, Tier.HIGH)] as Dictionary).duplicate()
+	tier = clampi(tier, Tier.LOW, Tier.HIGH)
+	var values := (PRESETS[tier] as Dictionary).duplicate()
+	if is_mobile():
+		values["scaling_3d_scale"] = minf(float(values["scaling_3d_scale"]), float(MOBILE_SCALE[tier]))
+	return values
 
 
 ## One switch of the current tier with a fallback.

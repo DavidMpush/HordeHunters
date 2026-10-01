@@ -71,6 +71,10 @@ func _ready() -> void:
 	_sfx = SFX.new()
 	_sfx.name = "Sfx"
 	add_child(_sfx)
+	# Stage 4 (Teil C): menu theme (music node under the root, cross-fades with the run).
+	var music: Node = load("res://scripts/core/music.gd").ensure(get_tree())
+	if music != null:
+		music.play_menu()
 
 
 ## Current hero of the profile (falls back to Brann for unknown ids).

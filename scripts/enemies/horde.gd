@@ -139,6 +139,8 @@ var ring_gap := 0.0
 var ring_gap_width := 4.0
 ## External boss target (boss_king.gd) or null.
 var boss: Node3D
+## Stage 4 Teil A (worlds): factor on every enemy hit on the hero.
+var damage_mult := 1.0
 var _elite_arcs: Array[MeshInstance3D] = []
 
 # Drawing
@@ -160,6 +162,19 @@ func setup(arena_node: Node3D, hero_node: Node3D, effects_node: Node3D) -> void:
 	hero = hero_node
 	effects = effects_node
 	_build()
+
+
+## Stage 4 Teil A: body tint of the world (alpha = how much of `tint` is
+## mixed into each kind's own tint; alpha 0 = the original look).
+func set_world_tint(tint: Color) -> void:
+	for kind in mini(KINDS, _bodies.size()):
+		var info: Dictionary = MODELS[kind]
+		var own: Color = info.tint
+		var mixed := own
+		if tint.a > 0.0:
+			mixed = Color(own.r, own.g, own.b).lerp(Color(tint.r, tint.g, tint.b), tint.a)
+			mixed.a = own.a
+		(_bodies[kind].material_override as ShaderMaterial).set_shader_parameter("body_tint", mixed)
 
 
 func count() -> int:
@@ -590,7 +605,7 @@ func step(delta: float) -> void:
 					var landed := false
 					strikes += 1
 					if in_reach and _hero_alive() and hero.has_method("take_hit"):
-						landed = bool(hero.take_hit(PT.ELITE_DAMAGE if elite else _damage[k], p))
+						landed = bool(hero.take_hit((PT.ELITE_DAMAGE if elite else _damage[k]) * damage_mult, p))
 					if landed:
 						strikes_hit += 1
 					swing_landed.emit(k, p if elite else p + dir * minf(d, _reach[k]), landed)

@@ -23,7 +23,10 @@ const DIM_IN := 0.15
 const CLOSE_OUT := 0.22
 ## Taps right after opening are ignored (a finger still on the stick).
 const GUARD := 0.3
-const TYPE_TAB := {"stat": "WERT", "weapon": "WAFFE", "new_weapon": "NEUE WAFFE", "relic": "RELIKT", "gold": "GOLD"}
+const TYPE_TAB := {"stat": "WERT", "weapon": "WAFFE", "new_weapon": "NEUE WAFFE", "relic": "RELIKT", "gold": "GOLD", "evolution": "EVOLUTION"}
+## Stage 4: the evolution card (violet body, gold rim, rainbow-ish pulse).
+const EVO_GOLD := Color("ffd23f")
+const EVO_VIOLET := Color("b06bff")
 const CHEST_TITLE := {"map": "KOKON!", "free": "ELITE-KOKON!", "boss": "BOSS-KOKON!"}
 
 var progression: Node
@@ -88,8 +91,15 @@ func _process(delta: float) -> void:
 
 func _has_legendary() -> bool:
 	for entry in offers:
-		if String(entry.get("rarity", "")) == "legendary":
+		if String(entry.get("rarity", "")) == "legendary" or String(entry.get("type", "")) == "evolution":
 			return _open
+	return false
+
+
+func _has_evolution() -> bool:
+	for entry in offers:
+		if String(entry.get("type", "")) == "evolution":
+			return true
 	return false
 
 
@@ -203,6 +213,8 @@ func _draw_title() -> void:
 	Kit.glow(self, grown.grow(-8.0), 30.0, tone, 0.45)
 	Kit.ribbon(self, grown, tone)
 	var title := String(CHEST_TITLE.get(kind, "KOKON!")) if chest else "LEVEL-UP!"
+	if chest and _has_evolution():
+		title = "EVOLUTION!"
 	Kit.text_outlined(self, grown.get_center() + Vector2(0, -4), title, UiStyle.T_HERO if pop > 0.98 else UiStyle.T_TITLE, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, grown.size.x - 50.0)
 	var sub := "WÄHLE 1 AUS %d" % offers.size()
 	if not chest:
@@ -237,6 +249,9 @@ func _reroll_glyph(center: Vector2, ready: bool) -> void:
 # One wide card: rarity rim, kit card with a header (name + rarity chip),
 # a type tab on the top edge, icon plate left, value/text right, rank pips.
 func _draw_card(rect: Rect2, entry: Dictionary) -> void:
+	if String(entry.get("type", "")) == "evolution":
+		_draw_evolution(rect, entry)
+		return
 	var rarity := String(entry.get("rarity", "common"))
 	var t: Dictionary = UiStyle.rarity_tone(rarity)
 	if rarity != "common":
@@ -295,6 +310,48 @@ func _draw_card(rect: Rect2, entry: Dictionary) -> void:
 		var tab := Rect2(Vector2(rect.position.x + 26.0, rect.position.y - 20.0), Vector2(tw, 36.0))
 		Kit.pill(self, tab, "dark", UiStyle.STROKE_S)
 		Kit.text_outlined(self, tab.get_center() + Vector2(0, -1), tab_label, UiStyle.T_LABEL, t["light"], -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+
+
+# Evolution card: violet card with a pulsing gold double rim and glow, a gold
+# EVOLUTION tab, header "<evolved name>", the base weapon's icon → the evolved
+# icon, "<base> wird zu <evolved>" and the effect text.
+func _draw_evolution(rect: Rect2, entry: Dictionary) -> void:
+	var pulse := 0.5 + 0.5 * sin(_clock * 4.0)
+	Kit.glow(self, rect.grow(10.0), 34.0, EVO_GOLD, 0.45 + 0.25 * pulse)
+	Kit.rrect(self, rect.grow(14.0), UiStyle.R_L + 14.0, Color(EVO_VIOLET, 0.35))
+	Kit.ring(self, rect.grow(12.0), UiStyle.R_L + 12.0, 7.0, EVO_GOLD.lerp(Color.WHITE, 0.35 * pulse))
+	Kit.ring(self, rect.grow(4.0), UiStyle.R_L + 4.0, 3.0, EVO_VIOLET.lightened(0.3))
+	Kit.card(self, rect, "special", "normal", HEADER)
+	var inset := UiStyle.STROKE_L + 7.0
+	var head := Rect2(rect.position + Vector2(inset, inset), Vector2(rect.size.x - 2.0 * inset, HEADER))
+	var body := Rect2(rect.position + Vector2(inset, inset + HEADER), Vector2(rect.size.x - 2.0 * inset, rect.size.y - 2.0 * inset - HEADER))
+	var font := UiStyle.display_font()
+	var chip_label := "MAX"
+	var chip_w := font.get_string_size(chip_label, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x + 30.0
+	var chip := Rect2(Vector2(head.end.x - 12.0 - chip_w, head.get_center().y - 21.0), Vector2(chip_w, 42.0))
+	Kit.chip(self, chip, "loot")
+	Kit.text_outlined(self, chip.get_center() + Vector2(0, -1), chip_label, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	var title_x := head.position.x + 18.0
+	Kit.text_outlined(self, Vector2(title_x, head.get_center().y), String(entry.name).to_upper(), UiStyle.T_HEAD, EVO_GOLD.lerp(Color.WHITE, 0.4), -1, -1, null, Kit.LEFT | Kit.MIDDLE, chip.position.x - 16.0 - title_x)
+	# Evolved icon on a gold plate with a spinning spark ring.
+	var plate := 124.0
+	var pc := Vector2(body.position.x + 22.0 + plate * 0.5, body.get_center().y + 2.0)
+	for k in 8:
+		var a := _clock * 1.6 + TAU * float(k) / 8.0
+		Kit.disc(self, pc + Vector2(cos(a), sin(a)) * (plate * 0.62), 5.0, Color(EVO_GOLD, 0.85))
+	Kit.icon_plate(self, pc, plate, "loot")
+	Icons.draw(self, String(entry.get("icon", "")), Kit.plate_center(pc, plate), plate * 0.8)
+	Kit.badge(self, pc + Vector2(plate * 0.38, -plate * 0.42), "EVO", "special", UiStyle.T_LABEL)
+	var x0 := pc.x + plate * 0.5 + 26.0
+	var width := body.end.x - 22.0 - x0
+	Kit.text_outlined(self, Vector2(x0, body.position.y + 40.0), String(entry.get("base", "")).to_upper() + "  →  " + String(entry.name).to_upper(), UiStyle.T_BODY + 2, EVO_GOLD, -1, -1, null, Kit.LEFT | Kit.MIDDLE, width)
+	Kit.paragraph(self, Vector2(x0, body.position.y + 78.0), String(entry.text), width, UiStyle.T_BODY, Color.WHITE, true, Kit.LEFT, 2)
+	# Gold EVOLUTION tab on the top edge.
+	var tab_label := "EVOLUTION"
+	var tw := font.get_string_size(tab_label, HORIZONTAL_ALIGNMENT_LEFT, -1, UiStyle.T_LABEL).x + 36.0
+	var tab := Rect2(Vector2(rect.position.x + 26.0, rect.position.y - 22.0), Vector2(tw, 40.0))
+	Kit.pill(self, tab, "loot", UiStyle.STROKE_S)
+	Kit.text_outlined(self, tab.get_center() + Vector2(0, -1), tab_label, UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 
 
 # "+8 % → +16 %": before dimmed, arrow in the rarity tone, after big.

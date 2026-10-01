@@ -11,6 +11,11 @@ extends Node
 #   - at 4:00 the Moorkönig (boss_king.gd); its death drops a boss cocoon and
 #     starts a short breather (no spawns)
 #   - from 6:00 the Endwelle: exponentially growing packs (director.endwave)
+# Stage 4 Teil A (worlds): all times above are world time (run time minus
+# world_start); start_world() begins the timeline of the next world, whose boss
+# comes from pressure_tuning.gd BOSSES. After a boss that is not the last one
+# the Endwelle starts PORTAL_GRACE s later unless the hero took the portal;
+# while the portal is open and off-screen the edge arrow points at it.
 # battle.gd creates this node, calls setup() once, step() every frame and
 # reset() on NOCHMAL. The HUD part (banner, arrows, boss bar, champion bars)
 # is scripts/ui/hud_pressure.gd, added to the battle's HUD layer.
@@ -67,6 +72,15 @@ var arrow_dir := Vector3.ZERO
 var arrow_label := ""
 var arrow_tone := "danger"
 var arrow_left := 0.0
+
+## Stage 4 Teil A: world of the run (0..2), its start in run time, Endwelle start
+## (world time), the last world (no portal, the boss ends the run).
+var world_index := 0
+var world_start := 0.0
+var end_at := PT.END_AT
+var final_world := false
+## Open portal (Vector3.INF = none); the edge arrow points at it off-screen.
+var portal_at := Vector3.INF
 
 var _ring_zone: MeshInstance3D
 var _lane_zone: MeshInstance3D
@@ -127,7 +141,26 @@ func setup(owner_battle: Node) -> void:
 		layer.move_child(hud, mini(1, layer.get_child_count() - 1))
 
 
+## Stage 4 Teil A: begins the timeline of world `index` at run time `start`.
+func start_world(index: int, start: float) -> void:
+	reset()
+	world_index = clampi(index, 0, PT.WORLD_COUNT - 1)
+	world_start = start
+	final_world = world_index >= PT.WORLD_COUNT - 1
+
+
+func boss_title() -> String:
+	if boss != null and is_instance_valid(boss):
+		return String(boss.title)
+	return String(PT.BOSSES[world_index].title)
+
+
 func reset() -> void:
+	world_index = 0
+	world_start = 0.0
+	end_at = PT.END_AT
+	final_world = false
+	portal_at = Vector3.INF
 	elapsed = 0.0
 	wave_state = 0
 	wave_next = PT.WAVE_FIRST
@@ -156,7 +189,7 @@ func reset() -> void:
 ## schedule = false: only running things (boss, ring) move on; nothing new is
 ## planned (tests, labs, the dead hero).
 func step(delta: float, run_elapsed: float, schedule := true) -> void:
-	elapsed = run_elapsed
+	elapsed = run_elapsed - world_start
 	banner_age += delta
 	arrow_left = maxf(0.0, arrow_left - delta)
 	if breather > 0.0:
@@ -186,21 +219,21 @@ func _schedule(delta: float) -> void:
 	# Boss: announced, then rises near the hero.
 	if boss_state == Boss.WAITING and elapsed >= PT.BOSS_AT - PT.BOSS_WARNING:
 		boss_state = Boss.ANNOUNCED
-		_banner("MOORKÖNIG", "danger")
+		_banner(boss_title(), "danger")
 		_log("announce", {"kind": "boss"})
 		announced.emit("boss", Vector3.ZERO)
 		_sfx("warn")
 	if boss_state == Boss.ANNOUNCED and elapsed >= PT.BOSS_AT:
 		spawn_boss()
 	# Endwelle.
-	if not endwave_on and elapsed >= PT.END_AT:
+	if not endwave_on and elapsed >= end_at:
 		endwave_on = true
 		_banner("ENDWELLE!", "danger")
 		_log("announce", {"kind": "endwave"})
 		announced.emit("endwave", Vector3.ZERO)
 		_sfx("warn")
 	if endwave_on and director != null:
-		director.endwave = elapsed - PT.END_AT
+		director.endwave = maxf(0.001, elapsed - end_at)
 	_schedule_waves(delta)
 	# Champion Brocken (not while the boss is announced or fighting).
 	if elapsed >= elite_next:
@@ -308,6 +341,7 @@ func spawn_wave() -> int:
 	wave_state = 0
 	var at := _hero_at()
 	var count := mini(PT.WAVE_SIZE_MAX, PT.WAVE_SIZE + PT.WAVE_SIZE_STEP * wave_index)
+	count = int(round(float(count) * float(PT.WORLD_DENSITY[world_index])))
 	if endwave_on:
 		count = int(round(float(count) * 1.5))
 	var made := 0
@@ -454,7 +488,10 @@ func spawn_boss() -> Node3D:
 		if arena != null and arena.has_method("safe_spawn"):
 			spot = arena.safe_spawn(spot, PT.BOSS_RADIUS)
 	boss = BOSS.new()
-	boss.name = "Moorkoenig"
+	var config: Dictionary = PT.BOSSES[world_index]
+	boss.name = String(config.id).capitalize()
+	if world_index > 0:
+		boss.configure(config)
 	boss.setup(arena, hero, effects)
 	boss.position = Vector3(spot.x, 0.0, spot.z)
 	var host: Node = battle.get_parent() if battle != null and battle.get_parent() != null else self
@@ -464,7 +501,7 @@ func spawn_boss() -> Node3D:
 	boss.attack_landed.connect(_on_boss_attack_landed)
 	boss.defeated.connect(_on_boss_defeated)
 	if effects != null and is_instance_valid(effects):
-		effects.ring(boss.position, Color(0.48, 0.34, 0.2, 0.85), 0.8, 4.5, 0.9)
+		effects.ring(boss.position, config.ring, 0.8, 4.5, 0.9)
 		effects.ring(boss.position, Color(0.66, 0.45, 0.95, 0.75), 0.4, 3.2, 1.2)
 	if battle != null and battle.get("shake") != null:
 		battle.shake.shake(0.4)
@@ -496,10 +533,13 @@ func _on_boss_defeated(at: Vector3) -> void:
 	breather = PT.BREATHER
 	horde.boss = null
 	_banner("SIEG!", "loot")
-	_log("boss_defeated", {"at": at})
-	_drop(at, "boss", PT.BOSS_GOLD)
-	if battle != null and battle.has_method("drop_xp"):
-		battle.drop_xp(at, 150)
+	_log("boss_defeated", {"at": at, "world": world_index})
+	if not final_world:
+		# The portal opens here (worlds.gd); dawdling brings the Endwelle.
+		end_at = minf(end_at, elapsed + PT.PORTAL_GRACE)
+		_drop(at, "boss", PT.BOSS_GOLD)
+		if battle != null and battle.has_method("drop_xp"):
+			battle.drop_xp(at, 150)
 	if battle != null and battle.get("run") != null and battle.run.has_method("add_kill"):
 		battle.run.add_kill(-1)
 	boss_defeated.emit(at)
@@ -534,8 +574,18 @@ func _update_arrow() -> void:
 		arrow_label = "LÜCKE"
 		arrow_tone = "info"
 		return
-	# A living champion off-screen: point at him (he carries a cocoon).
 	arrow_dir = Vector3.ZERO
+	# The open portal off-screen: point at it (the way on).
+	if portal_at.is_finite():
+		var to_portal := portal_at - _hero_at()
+		to_portal.y = 0.0
+		var on_screen: bool = director != null and director.camera != null and director.in_view(portal_at, _hero_at())
+		if to_portal.length() > 3.0 and not on_screen:
+			arrow_dir = to_portal.normalized()
+			arrow_label = "PORTAL"
+			arrow_tone = "info"
+			return
+	# A living champion off-screen: point at him (he carries a cocoon).
 	for i in horde.count():
 		if horde.is_elite(i):
 			var offset: Vector3 = horde.position_of(i) - _hero_at()

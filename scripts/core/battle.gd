@@ -14,6 +14,11 @@ extends Node
 signal run_restarted
 signal run_ended
 signal pause_changed(on: bool)
+## Stage 4 Teil A (worlds.gd): the portal opened after a world's boss, the
+## hero arrived in the next world, the boss of the last world fell.
+signal portal_opened(at: Vector3)
+signal world_changed(index: int, biome: String)
+signal run_won
 
 const T := preload("res://scripts/core/tuning.gd")
 const HERO := preload("res://scripts/hero/hero.gd")
@@ -30,6 +35,7 @@ const HUD := preload("res://scripts/ui/hud.gd")
 const PROGRESSION := preload("res://scripts/progression/progression.gd")
 const PRESSURE := preload("res://scripts/enemies/pressure.gd")
 const HEROES := preload("res://scripts/hero/heroes.gd")
+const WORLDS := preload("res://scripts/core/worlds.gd")
 ## Stage 3 Teil B: weapon scripts by catalogue id (progress.gd WEAPONS).
 const WEAPON_SCRIPTS := {
 	"shotgun": SHOTGUN,
@@ -37,6 +43,8 @@ const WEAPON_SCRIPTS := {
 	"axe": preload("res://scripts/weapons/throwing_axe.gd"),
 	"sword": preload("res://scripts/weapons/sword_whirl.gd"),
 	"grenade": preload("res://scripts/weapons/grenade.gd"),
+	"pistols": preload("res://scripts/weapons/pistols.gd"),
+	"lightning": preload("res://scripts/weapons/lightning.gd"),
 }
 
 ## false: nothing steps by itself (tests drive tick()).
@@ -71,6 +79,9 @@ var chests: Node3D
 var progress: RefCounted
 ## Stage 2 Teil B: waves, encircle rings, champions, boss, Endwelle (pressure.gd).
 var pressure: Node
+## Stage 4 Teil A: world of the run (0..2) and the world journey (worlds.gd).
+var world_index := 0
+var worlds: Node
 ## Stage 3: the run is paused by the player (see set_paused()).
 var user_paused := false
 var _ended := false
@@ -119,6 +130,7 @@ func _ready() -> void:
 	controls = CONTROLS.new()
 	controls.name = "Controls"
 	hud_layer.add_child(controls)
+	load("res://scripts/ui/fps_overlay.gd").attach(self)  # Etappe 4 Teil D: FPS-Anzeige, Qualitätsstufen, Shader-Warm-up
 	progression = PROGRESSION.new()
 	progression.name = "Progression"
 	add_child(progression)
@@ -136,7 +148,12 @@ func _ready() -> void:
 	pressure.name = "Pressure"
 	add_child(pressure)
 	pressure.setup(self)
+	worlds = WORLDS.new()
+	worlds.name = "Worlds"
+	add_child(worlds)
+	worlds.setup(self)
 	_connect()
+	_connect_audio()
 
 
 func _connect() -> void:
@@ -149,6 +166,78 @@ func _connect() -> void:
 	horde.enemy_damaged.connect(_on_enemy_damaged)
 	horde.windup_started.connect(_on_windup)
 	horde.swing_landed.connect(_on_swing)
+
+
+# ---------------------------------------------------------------- audio (stage 4 Teil C)
+
+## Music node under the root (scripts/core/music.gd), shared with the menu.
+var music: Node
+
+
+## Music and the stage 4 sounds. Signals of Teil A (portal_opened,
+## world_changed, run_won) and Teil B (evolved) are connected only if present.
+## Pick-ups, card picks, the portal hum and the heartbeat are polled by sfx.gd.
+func _connect_audio() -> void:
+	music = load("res://scripts/core/music.gd").ensure(get_tree())
+	if music != null:
+		music.watch(self)
+	sfx.watch(self)
+	run.leveled_up.connect(func(_level: int) -> void: _audio("levelup"))
+	chests.burst.connect(func(_entry: Dictionary) -> void: _audio("cocoon"))
+	pressure.announced.connect(func(kind: String, _dir: Vector3) -> void: _audio("announce_" + kind))
+	pressure.boss_spawned.connect(func() -> void: _audio("boss"))
+	pressure.boss_defeated.connect(func(_at: Vector3) -> void: _audio("boss_down"))
+	hero.died.connect(func() -> void: _audio("defeat"))
+	run_restarted.connect(func() -> void: _audio("restart"))
+	if has_signal("portal_opened"):
+		connect("portal_opened", func(at: Vector3) -> void: sfx.portal_opened(at))
+	if has_signal("world_changed"):
+		connect("world_changed", func(_index: int, biome: String) -> void: _audio("world", biome))
+	if has_signal("run_won"):
+		connect("run_won", func() -> void: _audio("victory"))
+	for source: Object in [progression, progress]:
+		if source != null and source.has_signal("evolved"):
+			source.connect("evolved", func(_id: String) -> void: _audio("evolve"))
+			break
+
+
+func _audio(what: String, biome: String = "") -> void:
+	match what:
+		"levelup":
+			sfx.play("levelup")
+		"cocoon":
+			sfx.play("cocoon")
+		"boss":
+			sfx.play("roar")
+		"boss_down":
+			sfx.play("roar", 0.7)
+		"evolve":
+			sfx.play("evolve")
+		"world", "restart", "victory":
+			sfx.portal_closed()
+			sfx.resync()
+			if what == "world":
+				sfx.play("whoosh")
+	if music == null or not is_instance_valid(music):
+		return
+	match what:
+		"levelup":
+			music.stinger("levelup")
+		"announce_boss":
+			music.stinger("boss")
+		"boss_down":
+			music.hush(2.5)
+		"evolve":
+			music.hush(1.5)
+		"defeat":
+			music.defeat()
+		"restart":
+			music.play_run()
+		"world":
+			music.set_biome(biome)
+			music.stinger("world")
+		"victory":
+			music.victory()
 
 
 func _process(delta: float) -> void:
@@ -164,6 +253,9 @@ func tick(delta: float) -> void:
 	# Level-up / cocoon choice open: the run stands still.
 	controls.blocked = paused()
 	if paused():
+		return
+	# Portal transition (fade, next world): the fight stands still.
+	if worlds != null and worlds.step(delta):
 		return
 	# Hit stop (uppercut): the fight freezes for a few frames.
 	if hitstop_frames > 0:
@@ -196,6 +288,9 @@ func tick(delta: float) -> void:
 
 ## New run on the same map: hero back to the start, enemies and effects gone.
 func restart() -> void:
+	# Back to world 1 (its map) before the hero is placed.
+	if worlds != null:
+		worlds.rewind()
 	var start := Vector3.ZERO
 	if arena != null and arena.has_method("spawn_points"):
 		var points: Array = arena.spawn_points(1)

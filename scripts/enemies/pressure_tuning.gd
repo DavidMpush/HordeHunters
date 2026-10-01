@@ -2,7 +2,7 @@ extends RefCounted
 
 # Numbers of stage 2, Teil B (Druck): multi-side packs, announced waves,
 # encircle rings, champion Brocken, the Moorkönig boss and the Endwelle
-# (stages/02_run_loop.md). Kept apart from tuning.gd so Teil A and Teil B can
+# (stages/02_run_loop.md); stage 4 Teil A: worlds, portal, bosses 2/3. Kept apart from tuning.gd so Teil A and Teil B can
 # tune in parallel; everything here is (frei) and open for the hand test.
 
 # ---------------------------------------------------------------- packs
@@ -98,3 +98,54 @@ const END_HP_STEP := 30.0
 const END_SPEED_MAX := 0.25             # up to +25 % speed
 const END_WAVE_INTERVAL := 22.0
 const END_RECYCLE := 36.0               # far enemies come back sooner
+
+# ---------------------------------------------------------------- worlds (stage 4 Teil A)
+# A run crosses three worlds (biomes.gd ORDER); every world has its own clock
+# (boss at BOSS_AT world time). Enemy health and damage per world, density
+# (wanted living count and wave size) +20 % per world.
+const WORLD_COUNT := 3
+const WORLD_HP := [1.0, 1.6, 2.4]
+const WORLD_DAMAGE := [1.0, 1.6, 2.4]
+const WORLD_DENSITY := [1.0, 1.2, 1.4]
+## The director's curves start this far in from world 2 on (Renner and Brocken
+## from the first minute instead of a calm Wichtel start).
+const WORLD_HEAD_START := 90.0
+## Body tint of the mass enemies per world (alpha = amount mixed in).
+## Complementary to the ground (violet on sand, cyan on peat) so they keep reading.
+const WORLD_TINT := [Color(1, 1, 1, 0.0), Color(0.5, 0.22, 0.72, 0.3), Color(0.2, 0.7, 0.78, 0.25)]
+## Portal: the hero stands this long inside it, then the next world loads.
+const PORTAL_RADIUS := 2.2
+const PORTAL_HOLD := 0.6
+## The boss fell and the hero did not take the portal: Endwelle after this long.
+const PORTAL_GRACE := 60.0
+const FADE_OUT := 0.35
+const FADE_IN := 0.45
+
+# Bosses per world: the Moorkönig state machine with a model, health, damage
+# and one extra attack per world (boss_king.gd configure()).
+const BOSSES := [
+	{"id": "moorkoenig", "title": "MOORKÖNIG", "model": "res://assets/enemies/BogKing_game.glb",
+		"length": 4.6, "radius": 1.5, "hp": 1600.0, "damage": 1.0, "extra": "", "crown": true,
+		"tint": Color(0.45, 0.66, 0.32, 0.0), "rim": Color("d8b8ff"), "ring": Color(0.48, 0.34, 0.2, 0.85)},
+	{"id": "sandwurm", "title": "SANDWURM", "model": "res://assets/enemies/Sandwurm_game.glb",
+		"length": 6.4, "radius": 1.7, "hp": 4200.0, "damage": 1.3, "extra": "charge", "crown": false,
+		"tint": Color(1.0, 0.8, 0.5, 0.15), "rim": Color("ffe0a8"), "ring": Color(0.85, 0.66, 0.38, 0.85)},
+	{"id": "aschenkroete", "title": "ASCHENKRÖTE", "model": "res://assets/enemies/AshToad_game.glb",
+		"length": 5.4, "radius": 1.8, "hp": 7800.0, "damage": 1.6, "extra": "erupt", "crown": false,
+		"tint": Color(1.0, 0.45, 0.25, 0.12), "rim": Color("ffb070"), "ring": Color(0.95, 0.4, 0.15, 0.85)},
+]
+# Sandwurm "Sandsturz": a straight lane from the worm through the hero's spot;
+# after the wind-up the worm shoots along it.
+const CHARGE_WINDUP := 1.1
+const CHARGE_LENGTH := 14.0
+const CHARGE_WIDTH := 3.2
+const CHARGE_DASH := 0.4
+const CHARGE_DAMAGE := 26.0
+const CHARGE_TRIGGER := 11.0
+# Aschenkröte "Glutregen": four glowing landing spots, one on the hero.
+const ERUPT_WINDUP := 1.4
+const ERUPT_COUNT := 4
+const ERUPT_RADIUS := 2.4
+const ERUPT_SPREAD := 4.8
+const ERUPT_DAMAGE := 24.0
+const ERUPT_TRIGGER := 12.0

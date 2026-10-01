@@ -15,11 +15,24 @@ extends "res://scripts/weapons/weapon.gd"
 # bodies), knockback_mult, mag_bonus, crit (chance of double pellet damage).
 # Stage 3 (Teil B §1): built on weapon.gd (hero/horde/effects, _stat, damage
 # booked on "Schrotflinte"); behaviour unchanged.
+# Stage 4 evolution "Drachenatem" (evolved()): flame cone over the fan and the
+# first BURSTS pellet targets explode (see _dragon_breath).
 
 signal fired(direction: Vector3, pellets_hit: int, kills: int)
 signal reload_started
 signal shells_ejected
 signal reload_finished
+
+const STREAKS := preload("res://scripts/weapons/streaks.gd")
+## Drachenatem (evolution, partner Pulverhorn): flame cone + exploding pellets
+## (+2 pellets via progress pellets_bonus).
+const FLAME_REACH := 0.85
+const FIRE_DAMAGE := 8.0
+const BURSTS := 3
+const BURST_RADIUS := 1.5
+const BURST_DAMAGE := 12.0
+const FLAME_COLOR := Color(1.0, 0.38, 0.05, 0.9)
+const FLAME_CORE := Color(1.0, 0.85, 0.35, 0.9)
 
 var shells := T.GUN_SHELLS
 var gap := 0.0
@@ -33,12 +46,20 @@ var _ejected := false
 ## Last shot (tests): [{"from", "to", "index", "damage"}] per pellet.
 var last_pellets: Array[Dictionary] = []
 var last_hits: Dictionary = {}
+var _flames: Node3D
+var _burns := 0
 
 
 func _init() -> void:
 	super()
 	id = "shotgun"
 	source = "Schrotflinte"
+
+
+func _ready() -> void:
+	_flames = STREAKS.new()
+	_flames.name = "Flames"
+	add_child(_flames)
 
 
 func max_shells() -> int:
@@ -69,6 +90,9 @@ func reset() -> void:
 	_ejected = false
 	last_pellets.clear()
 	last_hits.clear()
+	_burns = 0
+	if _flames != null:
+		_flames.clear()
 	_set_model_reload(-1.0)
 
 
@@ -84,6 +108,8 @@ func reload_progress() -> float:
 
 
 func step(delta: float) -> void:
+	if _flames != null:
+		_flames.step(delta)
 	if hero == null or horde == null:
 		return
 	if hero.has_method("is_dead") and hero.is_dead():
@@ -207,6 +233,8 @@ func fire(direction: Vector3) -> int:
 		last_pellets.append({"from": origin, "to": end, "index": first, "damage": first_damage, "angle": angle})
 		if effects != null and is_instance_valid(effects):
 			effects.tracer(muzzle, end + Vector3.UP * (0.45 if first >= 0 else 0.6))
+	if evolved():
+		_dragon_breath(origin, muzzle, dir, reach, fan, hits, damage_mult)
 	last_hits = hits.duplicate(true)
 	var killed := apply(hits)
 	if model != null:
@@ -216,6 +244,41 @@ func fire(direction: Vector3) -> int:
 		effects.blast(origin + dir * 0.4, dir, reach - 0.4, fan * 0.5)
 	fired.emit(dir, pellets_hit, killed)
 	return killed
+
+
+# Drachenatem (evolution, stage 4): everything in the fan burns (flat fire
+# damage) and the first BURSTS bodies hit by pellets explode (area damage).
+func _dragon_breath(origin: Vector3, muzzle: Vector3, dir: Vector3, reach: float, fan: float, hits: Dictionary, damage_mult: float) -> void:
+	var flame_reach := reach * FLAME_REACH
+	for index in enemies_in_arc(origin, dir, flame_reach, fan * 0.5 + 0.12):
+		if not hits.has(index):
+			hits[index] = {"damage": 0.0, "dir": dir, "pellets": 0}
+		hits[index].damage += FIRE_DAMAGE * damage_mult
+	var centers: Array[Vector3] = []
+	for index in hits:
+		if int(hits[index].pellets) > 0 and centers.size() < BURSTS:
+			centers.append(horde.position_of(index))
+	for center in centers:
+		for index in enemies_in_circle(center, BURST_RADIUS):
+			if not hits.has(index):
+				var out: Vector3 = horde.position_of(index) - center
+				out.y = 0.0
+				hits[index] = {"damage": 0.0, "dir": out.normalized() if out.length_squared() > 0.0001 else dir, "pellets": 0}
+			hits[index].damage += BURST_DAMAGE * damage_mult
+	_burns += 1
+	if _flames == null:
+		return
+	# Flame tongues along the fan (orange body, yellow core), bursts as orbs.
+	for k in 7:
+		var a := (float(k) / 6.0 - 0.5) * fan
+		var tip := origin + dir.rotated(Vector3.UP, a) * flame_reach * (0.8 + 0.2 * float(k % 2))
+		_flames.streak(muzzle, Vector3(tip.x, 0.7, tip.z), FLAME_COLOR, 1.0, 0.32)
+	_flames.streak(muzzle, Vector3(origin.x, 0.75, origin.z) + dir * flame_reach * 0.75, FLAME_CORE, 0.6, 0.26)
+	for center in centers:
+		_flames.orb(Vector3(center.x, 0.5, center.z), BURST_RADIUS, Color(1.0, 0.55, 0.12, 0.9), 0.28)
+	if effects != null and is_instance_valid(effects):
+		for center in centers:
+			effects.ring(center, Color(1.0, 0.5, 0.1, 0.85), 0.3, BURST_RADIUS, 0.25)
 
 
 func _eject() -> void:

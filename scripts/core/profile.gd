@@ -3,7 +3,8 @@ extends RefCounted
 # Player profile (stage 3, Teil A §4), JSON under user://profile.json:
 #   hero_id     hero chosen in the menu
 #   settings    volume_master / volume_music / volume_sfx (0..1),
-#               vibration, damage_numbers (bool)
+#               vibration, damage_numbers (bool), show_fps (bool, FPS overlay of
+#               the run, Etappe 4 Teil D; on while we test on the phone)
 #   records     per hero: best_time (s), best_kills, best_level, runs
 #   runs_total  finished runs (death) over all heroes
 #   disabled_weapons  weapon ids switched off in the menu's Arsenal (never
@@ -21,6 +22,7 @@ const SETTING_DEFAULTS := {
 	"volume_sfx": 1.0,
 	"vibration": true,
 	"damage_numbers": true,
+	"show_fps": true,
 }
 
 var path := DEFAULT_PATH

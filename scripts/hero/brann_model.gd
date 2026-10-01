@@ -7,10 +7,14 @@ extends Node3D
 #   torso  - turns to the aim (auto-aim target), leans on recoil and dash
 #   gun    - recoil kick, reload (swings across the chest, barrels break open,
 #            shells fly out, two new ones go in, snap shut)
-#   flash  - every part flashes on a hit (instance uniform of toon_part)
+#   flash  - the whole model flashes on a hit (material uniform)
 # The model faces local +Z. The hero (hero.gd) drives it with the setters below.
+# Etappe 4 Teil D (performance): the ~60 primitive parts are merged into ONE
+# vertex-coloured mesh per animation pivot (hips, legs, torso, head, gun,
+# barrels, left arm, shells in hand) with one shared material: about 9 draw
+# calls instead of 60, and the hit flash is one material write per change.
 
-const TOON := preload("res://shaders/toon_part.gdshader")
+const TOON := preload("res://shaders/toon_merged.gdshader")
 
 const SCALE := 1.35
 const SKIN := Color("8a5636")
@@ -44,8 +48,12 @@ var barrels: Node3D
 var muzzle: Node3D
 var breech: Node3D
 var hand_shells: Node3D
+## Merged meshes (one per pivot that carries parts).
 var _parts: Array[GeometryInstance3D] = []
-var _materials := {}
+## pivot -> [[mesh, transform, colour], ...] while building.
+var _pending := {}
+var _material: ShaderMaterial
+var _flash_shown := -1.0
 
 # Animation state
 var move_amount := 0.0           # 0..1 share of full run speed
@@ -136,8 +144,7 @@ func build() -> void:
 		_cylinder(hand_shells, SHELL_RED, 0.045, 0.16, Vector3(side * 0.05, 0.0, 0.0))
 		_cylinder(hand_shells, BRASS, 0.05, 0.04, Vector3(side * 0.05, 0.0, -0.09))
 	hand_shells.visible = false
-	for part in _parts:
-		part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	_merge_parts()
 
 
 ## Turns the torso onto the aim at once (the shot must leave along the aim).
@@ -214,9 +221,11 @@ func animate(delta: float) -> void:
 
 
 func _apply_flash() -> void:
-	var f := hurt
-	for part in _parts:
-		part.set_instance_shader_parameter("hit_flash", f)
+	var f := snappedf(hurt, 0.02)
+	if f == _flash_shown:
+		return
+	_flash_shown = f
+	_shared_material().set_shader_parameter("hit_flash", f)
 
 
 static func _ramp(x: float, a: float, b: float) -> float:
@@ -233,60 +242,105 @@ func _pivot(parent: Node3D, node_name: String, at: Vector3) -> Node3D:
 	return node
 
 
-func _material(color: Color) -> ShaderMaterial:
-	var key := color.to_html()
-	if not _materials.has(key):
-		var material := ShaderMaterial.new()
-		material.shader = TOON
-		material.set_shader_parameter("albedo", color)
-		material.set_shader_parameter("brightness", 1.05)
-		material.set_shader_parameter("saturation", 1.15)
-		material.set_shader_parameter("shape_light", 0.42)
-		material.set_shader_parameter("rim_color", Color("ffd9a0"))
-		material.set_shader_parameter("rim_strength", 0.5)
-		material.set_shader_parameter("rim_power", 3.0)
-		_materials[key] = material
-	return _materials[key]
+func _shared_material() -> ShaderMaterial:
+	if _material == null:
+		_material = ShaderMaterial.new()
+		_material.shader = TOON
+		_material.set_shader_parameter("brightness", 1.05)
+		_material.set_shader_parameter("saturation", 1.15)
+		_material.set_shader_parameter("shape_light", 0.42)
+		_material.set_shader_parameter("rim_color", Color("ffd9a0"))
+		_material.set_shader_parameter("rim_strength", 0.5)
+		_material.set_shader_parameter("rim_power", 3.0)
+	return _material
 
 
-func _add(parent: Node3D, mesh: Mesh, color: Color, xform: Transform3D) -> MeshInstance3D:
-	var part := MeshInstance3D.new()
-	part.mesh = mesh
-	part.material_override = _material(color)
-	part.transform = xform
-	parent.add_child(part)
-	_parts.append(part)
-	return part
+## Records a part; _merge_parts() turns each pivot's parts into one mesh.
+func _add(parent: Node3D, mesh: Mesh, color: Color, xform: Transform3D) -> void:
+	if not _pending.has(parent):
+		_pending[parent] = []
+	_pending[parent].append([mesh, xform, color])
 
 
-func _box(parent: Node3D, color: Color, size: Vector3, at: Vector3, tilt := Vector3.ZERO) -> MeshInstance3D:
+func _merge_parts() -> void:
+	for pivot: Node3D in _pending:
+		var part := MeshInstance3D.new()
+		part.name = "Merged"
+		part.mesh = merge_colored(_pending[pivot])
+		part.material_override = _shared_material()
+		part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		pivot.add_child(part)
+		_parts.append(part)
+	_pending.clear()
+
+
+## One ArrayMesh from [[mesh, transform, colour], ...]: positions and normals
+## baked into the pivot's space, the colour as (sRGB) vertex colour.
+static func merge_colored(parts: Array) -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	for part in parts:
+		var mesh: Mesh = part[0]
+		var xform: Transform3D = part[1]
+		var color: Color = part[2]
+		var normal_basis := xform.basis.inverse().transposed()
+		for surface in mesh.get_surface_count():
+			var arrays := mesh.surface_get_arrays(surface)
+			var pv: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var pn: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			var base := verts.size()
+			for i in pv.size():
+				verts.append(xform * pv[i])
+				normals.append((normal_basis * pn[i]).normalized())
+				colors.append(color)
+			var pi: Variant = arrays[Mesh.ARRAY_INDEX]
+			if pi is PackedInt32Array and not (pi as PackedInt32Array).is_empty():
+				for index in pi:
+					indices.append(base + index)
+			else:
+				for i in pv.size():
+					indices.append(base + i)
+	var out := []
+	out.resize(Mesh.ARRAY_MAX)
+	out[Mesh.ARRAY_VERTEX] = verts
+	out[Mesh.ARRAY_NORMAL] = normals
+	out[Mesh.ARRAY_COLOR] = colors
+	out[Mesh.ARRAY_INDEX] = indices
+	var merged := ArrayMesh.new()
+	merged.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out)
+	return merged
+
+
+func _box(parent: Node3D, color: Color, size: Vector3, at: Vector3, tilt := Vector3.ZERO) -> void:
 	var mesh := BoxMesh.new()
 	mesh.size = size
-	return _add(parent, mesh, color, Transform3D(Basis.from_euler(tilt), at))
+	_add(parent, mesh, color, Transform3D(Basis.from_euler(tilt), at))
 
 
-func _sphere(parent: Node3D, color: Color, radius: float, at: Vector3, stretch: Vector3) -> MeshInstance3D:
+func _sphere(parent: Node3D, color: Color, radius: float, at: Vector3, stretch: Vector3) -> void:
 	var mesh := SphereMesh.new()
 	mesh.radius = radius
 	mesh.height = radius * 2.0
 	mesh.radial_segments = 16
 	mesh.rings = 8
-	return _add(parent, mesh, color, Transform3D(Basis.from_scale(stretch), at))
+	_add(parent, mesh, color, Transform3D(Basis.from_scale(stretch), at))
 
 
 ## Cylinder along local Z.
-func _cylinder(parent: Node3D, color: Color, radius: float, length: float, at: Vector3) -> MeshInstance3D:
+func _cylinder(parent: Node3D, color: Color, radius: float, length: float, at: Vector3) -> void:
 	var mesh := CylinderMesh.new()
 	mesh.top_radius = radius
 	mesh.bottom_radius = radius
 	mesh.height = length
 	mesh.radial_segments = 10
 	mesh.rings = 1
-	return _add(parent, mesh, color, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), at))
+	_add(parent, mesh, color, Transform3D(Basis(Vector3.RIGHT, PI * 0.5), at))
 
 
 ## Capsule from a to b.
-func _limb(parent: Node3D, color: Color, a: Vector3, b: Vector3, radius: float) -> MeshInstance3D:
+func _limb(parent: Node3D, color: Color, a: Vector3, b: Vector3, radius: float) -> void:
 	var mesh := CapsuleMesh.new()
 	mesh.radius = radius
 	mesh.height = maxf(radius * 2.0, a.distance_to(b) + radius * 2.0)
@@ -300,4 +354,4 @@ func _limb(parent: Node3D, color: Color, a: Vector3, b: Vector3, radius: float) 
 			basis = Basis.IDENTITY if dir.y > 0.0 else Basis(Vector3.RIGHT, PI)
 		else:
 			basis = Basis(axis.normalized(), Vector3.UP.angle_to(dir))
-	return _add(parent, mesh, color, Transform3D(basis, (a + b) * 0.5))
+	_add(parent, mesh, color, Transform3D(basis, (a + b) * 0.5))

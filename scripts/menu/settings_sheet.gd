@@ -1,7 +1,8 @@
 extends Control
 
 # Settings of the menu (stage 3, Teil A §1): volumes (Gesamt, Musik, Effekte
-# on the Master / Music / SFX buses), vibration on/off, damage numbers on/off.
+# on the Master / Music / SFX buses), vibration on/off, damage numbers on/off,
+# FPS overlay on/off (Etappe 4 Teil D).
 # Every change is applied at once and saved in the profile (sliders on
 # release). FERTIG / Esc returns to the title.
 
@@ -15,6 +16,7 @@ const SESSION := preload("res://scripts/core/session.gd")
 const TOGGLES := [
 	["vibration", "VIBRATION", "Kurzes Rütteln, wenn dich ein Gegner trifft"],
 	["damage_numbers", "SCHADENSZAHLEN", "Zahlen über getroffenen Gegnern"],
+	["show_fps", "FPS-ANZEIGE", "Bilder pro Sekunde und Frame-Zeit oben links"],
 ]
 
 var menu: Control
@@ -31,7 +33,7 @@ func _oy() -> float:
 
 
 func panel_rect() -> Rect2:
-	return Rect2(Vector2(size.x * 0.5 - 400.0, _oy() + 210.0), Vector2(800.0, 850.0))
+	return Rect2(Vector2(size.x * 0.5 - 400.0, _oy() + 210.0), Vector2(800.0, 850.0 + 136.0 * float(TOGGLES.size() - 2)))
 
 
 func slider_rect(index: int) -> Rect2:
@@ -118,5 +120,5 @@ func _draw() -> void:
 		PARTS.toggle(self, sw, on)
 	var note := "Vibration wirkt nur auf dem Handy." if not OS.has_feature("mobile") else ""
 	if note != "":
-		Kit.paragraph(self, Vector2(x0, oy + 1010.0), note, 700.0, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, false, Kit.CENTER, 1)
+		Kit.paragraph(self, Vector2(x0, oy + 1010.0 + 136.0 * float(TOGGLES.size() - 2)), note, 700.0, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, false, Kit.CENTER, 1)
 	PARTS.draw_done(self, done_rect())

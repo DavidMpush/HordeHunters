@@ -42,6 +42,10 @@ func _process(delta: float) -> void:
 	if pressure != null:
 		var age: float = pressure.banner_age
 		_banner_layer.modulate.a = clampf((BANNER_LIFE - age) / 0.4, 0.0, 1.0) * clampf(age / 0.12, 0.0, 1.0)
+		# Stage 4: the result screen (GEFALLEN / SIEG!) has its own ribbon.
+		var battle: Node = pressure.battle
+		if battle != null and battle.run != null and battle.run.dead:
+			_banner_layer.modulate.a *= clampf(1.0 - float(battle.run.since_death) / 0.8, 0.0, 1.0)
 		if age < BANNER_LIFE + 0.1:
 			_banner_layer.queue_redraw()
 
@@ -170,7 +174,7 @@ func _draw_boss_bar() -> void:
 	_crown(Kit.plate_center(plate_c, plate), plate * 0.3)
 	var x0 := plate_c.x + plate * 0.5 + 12.0
 	var x1 := rect.end.x - 18.0
-	Kit.text_outlined(self, Vector2(x0, rect.position.y + 38.0), "MOORKÖNIG", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT, x1 - x0 - 150.0)
+	Kit.text_outlined(self, Vector2(x0, rect.position.y + 38.0), pressure.boss_title(), UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT, x1 - x0 - 150.0)
 	var fraction := 1.0
 	var tag := ""
 	if announced:

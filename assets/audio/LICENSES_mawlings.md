@@ -61,3 +61,27 @@ Nicht übernommen (Ereignis bereits besetzt): `mutation_select` (`mutate`), `bos
 
 Etappe 23 (Audio-Durchgang, 28.09.2026), alles eigene Synthese in `tools/gen_sfx.py` (`SOUNDS_23`) bzw. `tools/gen_music.py`, keine Fremdrechte:
 `collect_coin`, `cocoon_open`, `cocoon_common`, `cocoon_rare`, `cocoon_epic`, `cocoon_legendary`, `cocoon_denied`, `powerup_take`, `powerup_end`, `shrine_tick`, `shrine_done`, `ability_glutsprung`, `ability_land`, `ability_sporenbombe`, `ability_panzerstoss`, `ability_hetzjagd`, `ability_saeureschwall`, `ability_schattenschleier`, `ability_ready`, `leader_hit_heavy`, `sandworm_breach`, `sandworm_sweep`, `sandgrub_burst`, die Loops `sandworm_dig`, `sandstorm`, `quicksand`, `ambience_desert` sowie die Wüsten-Musik `assets/music/desert_base/tension/flood/boss.wav`. `leader_critical` nutzt die `heartbeat`-Dateien. Etappe 24: `ambience_glutsumpf` (Loop), `lava_warn`, `lava_burst` (`SOUNDS_24`), ebenfalls eigene Synthese. Die Stock-Sounds des Nutzers waren bereits alle vergeben; neue Aufnahmen wurden nicht importiert. Die prozeduralen Fassungen von `bite`, `warn`, `ui`, `extinct` erzeugt `tools/gen_sfx.py` nur noch, wenn die V1-Quellen fehlen.
+
+## Etappe 4 (Horde Hunters, Teil C, 01.10.2026): aus Mawlings kopiert
+
+Unverändert aus Mawlings `assets/audio/` bzw. `assets/music/` übernommen (inkl. `.import`). Herkunft und Lizenz wie in den Tabellen oben; Mixkit-Dateien nur eingebettet im Spiel, nicht separat weitergeben.
+
+| Datei in Horde Hunters | Herkunft | Spiel-ID (`sfx.gd` / `music.gd`) |
+|---|---|---|
+| `assets/audio/boss_roar_1..2.wav` | Mixkit (`aggressive-beast-roar`) | `roar` |
+| `assets/audio/portal_open_1..2.wav` | Mixkit (`alien-technology-hum`) | `portal` |
+| `assets/audio/portal_hum_1.wav` | Mixkit (`technological-futuristic-hum`) | Portal-Summen (Loop) |
+| `assets/audio/migration_whoosh_1.wav` | Mixkit (`epic-orchestra-transition`) | `whoosh` (Weltwechsel) |
+| `assets/audio/fanfare_1.wav` | Mixkit (`trumpet-fanfare`) | `fanfare`, Musik-Stinger `victory` |
+| `assets/audio/evolve_1..2.wav` | Mixkit (`sword-magic-drag`) | `evolve` |
+| `assets/audio/milestone_1..2.wav` | Mixkit (`completion-of-a-level`) | `levelup` |
+| `assets/audio/mutate_1..3.wav` | Mixkit (`sci-fi-positive-notification`) | `card` |
+| `assets/audio/collect_coin_1..3.wav` | eigene Synthese (Etappe 23) | `gold` |
+| `assets/audio/cocoon_open_1..2.wav` | eigene Synthese (Etappe 23) | `cocoon` |
+| `assets/audio/heartbeat_1..2.wav` | eigene Synthese | `heartbeat` (wenig LP) |
+| `assets/music/menu_theme.wav` | eigene Synthese (`gen_music.py`) | Menü-Thema |
+| `assets/music/run_base/tension/flood/boss.wav` | eigene Synthese (`gen_music.py`) | Lauf-Stems (Verdant, Glutsumpf) |
+| `assets/music/desert_base/tension/flood/boss.wav` | eigene Synthese (Etappe 23) | Lauf-Stems Dürrschlund |
+| `assets/music/sting_boss.wav`, `sting_king.wav`, `sting_extinct.wav` | eigene Synthese (`gen_music.py`) | Stinger `boss`, `world`, `defeat` |
+
+Der Gem-Ton (`gem`) wird wie Schuss, Klicks und Dash in `sfx.gd` zur Laufzeit synthetisiert (keine Datei).

@@ -6,6 +6,7 @@ extends Node
 #   cooldown        seconds between attacks (cooldown_time(): base / fire rate)
 #   rank()          level 1..6 from the build (hero.build.weapon_rank, 0 = not owned),
 #                   rank_override >= 0 wins (tests); power() = rarity units
+#   evolved()       evolved form (stage 4, hero.build.is_evolved), evolved_override
 #   targeting       nearest_target(range) via horde.nearest_index (boss incl.)
 #   damage          base x hero.stat("damage_mult"), crit doubles
 #   hits            apply(hits) books the damage on `source`, then
@@ -32,6 +33,8 @@ var shake: Node
 var sfx: Node
 ## >= 0: fixed rank (tests); < 0: read from the build.
 var rank_override := -1
+## >= 0: fixed evolved state (tests, 1 = evolved); < 0: read from the build.
+var evolved_override := -1
 ## Seconds until the next attack.
 var cooldown_left := 0.0
 var attacks := 0
@@ -69,6 +72,17 @@ func power() -> float:
 	if build != null and build.has_method("weapon_power"):
 		return float(build.weapon_power(id))
 	return float(rank())
+
+
+## Stage 4: the weapon is in its evolved form (progress.is_evolved);
+## evolved_override 0/1 wins (tests), -1 = read from the build.
+func evolved() -> bool:
+	if evolved_override >= 0:
+		return evolved_override == 1
+	var build: Variant = hero.get("build") if hero != null else null
+	if build != null and build.has_method("is_evolved"):
+		return bool(build.is_evolved(id))
+	return false
 
 
 ## Damage factor of the weapon from its power (1 unit = x1, 5 = x2;

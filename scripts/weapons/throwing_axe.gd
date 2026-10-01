@@ -7,6 +7,8 @@ extends "res://scripts/weapons/weapon.gd"
 #   through everything (each enemy at most once per pass: out and back). Light enemies are knocked along its flight.
 #   Rank 1 one axe, 2 more damage + reach, 3 two axes, 4 more damage + faster,
 #   5 three axes, 6 Riesenaxt (+40 % damage, reach). Damage x power_factor().
+#   Evolution "Blutmond-Axt" (partner relic Jagdtrophäe): +1 axe, +50 % damage,
+#   1.45x size and hit radius, blood-red blades and spin disc, hits heal.
 
 const COOLDOWN := 1.8
 const AIM_RANGE := 9.0
@@ -20,12 +22,19 @@ const HEIGHT := 1.0
 const SPIN := 22.0
 const REHIT := 0.3
 const SIZE := 1.7
+## Blutmond-Axt (evolution).
+const BLOOD_MULT := 1.5
+const BLOOD_SIZE := 1.45
+const BLOOD_HEAL := 0.4
+const BLOOD_HEAL_HITS := 4
 
 var axes: Array[Dictionary] = []
 var throws := 0
 var hits_total := 0
 var _root: Node3D
 var _meshes: Array[Node3D] = []
+var _mesh_blood := false
+var healed := 0.0
 
 
 func _init() -> void:
@@ -46,12 +55,13 @@ func reset() -> void:
 	axes.clear()
 	throws = 0
 	hits_total = 0
+	healed = 0.0
 	_draw()
 
 
 func axe_count() -> int:
 	var r := rank()
-	return 3 if r >= 5 else (2 if r >= 3 else 1)
+	return (3 if r >= 5 else (2 if r >= 3 else 1)) + (1 if evolved() else 0)
 
 
 func out_range() -> float:
@@ -63,7 +73,11 @@ func cooldown() -> float:
 
 
 func damage() -> float:
-	return DAMAGE * power_factor() * (1.4 if rank() >= 6 else 1.0)
+	return DAMAGE * power_factor() * (1.4 if rank() >= 6 else 1.0) * (BLOOD_MULT if evolved() else 1.0)
+
+
+func hit_radius() -> float:
+	return HIT_RADIUS * (BLOOD_SIZE if evolved() else 1.0)
 
 
 func step(delta: float) -> void:
@@ -131,7 +145,7 @@ func _hit(axe: Dictionary, travel: Vector3) -> void:
 	var hits := {}
 	var flight := Vector3(travel.x, 0.0, travel.z)
 	flight = flight.normalized() if flight.length_squared() > 0.00001 else Vector3(axe.dir)
-	for index in enemies_in_circle(axe.pos, HIT_RADIUS):
+	for index in enemies_in_circle(axe.pos, hit_radius()):
 		if done.has(index):
 			continue
 		done[index] = float(axe.age) + REHIT
@@ -143,11 +157,21 @@ func _hit(axe: Dictionary, travel: Vector3) -> void:
 		hits_total += hits.size()
 		apply(hits)
 		_sound("hit", 1.3)
+		if evolved() and not hero.is_dead():
+			var before: float = hero.health
+			hero.health = minf(hero.max_health, hero.health + BLOOD_HEAL * float(mini(hits.size(), BLOOD_HEAL_HITS)))
+			healed += hero.health - before
 
 
 func _draw() -> void:
 	if _root == null or not _root.is_inside_tree():
 		return
+	# The evolution swaps the look: the pooled meshes are built again once.
+	if evolved() != _mesh_blood:
+		_mesh_blood = evolved()
+		for node in _meshes:
+			node.queue_free()
+		_meshes.clear()
 	while _meshes.size() < axes.size():
 		_meshes.append(_make_axe())
 	for index in _meshes.size():
@@ -159,7 +183,7 @@ func _draw() -> void:
 		node.visible = true
 		var p: Vector3 = axe.pos
 		# Flat spin round the vertical axis, tilted a little towards the camera.
-		node.global_transform = Transform3D((Basis(Vector3.UP, float(axe.spin)) * Basis(Vector3.RIGHT, -0.35)).scaled(Vector3.ONE * SIZE), Vector3(p.x, HEIGHT, p.z))
+		node.global_transform = Transform3D((Basis(Vector3.UP, float(axe.spin)) * Basis(Vector3.RIGHT, -0.35)).scaled(Vector3.ONE * SIZE * (BLOOD_SIZE if _mesh_blood else 1.0)), Vector3(p.x, HEIGHT, p.z))
 
 
 func _make_axe() -> Node3D:
@@ -173,8 +197,8 @@ func _make_axe() -> Node3D:
 	part(node, box(Vector3(0.12, 0.12, 0.14)), Color("4a4f57"), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.3)))
 	var blade := PrismMesh.new()
 	blade.size = Vector3(0.62, 0.5, 0.08)
-	part(node, blade, Color("d9e0ea"), Transform3D(Basis(Vector3.FORWARD, -PI * 0.5), Vector3(0.28, 0, 0.3)))
-	part(node, box(Vector3(0.08, 0.06, 0.52)), Color("ffffff"), Transform3D(Basis.IDENTITY, Vector3(0.56, 0, 0.3)))
+	part(node, blade, Color("d01c34") if _mesh_blood else Color("d9e0ea"), Transform3D(Basis(Vector3.FORWARD, -PI * 0.5), Vector3(0.28, 0, 0.3)))
+	part(node, box(Vector3(0.08, 0.06, 0.52)), Color("ffb4a8") if _mesh_blood else Color("ffffff"), Transform3D(Basis.IDENTITY, Vector3(0.56, 0, 0.3)))
 	# Spin blur: a pale disc the size of the swing (cartoon motion blur).
 	var disc := CylinderMesh.new()
 	disc.top_radius = 0.62
@@ -187,7 +211,7 @@ func _make_axe() -> Node3D:
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_color = Color(0.92, 0.96, 1.0, 0.38)
+	material.albedo_color = Color(1.0, 0.18, 0.24, 0.5) if _mesh_blood else Color(0.92, 0.96, 1.0, 0.38)
 	material.render_priority = 1
 	blur.material_override = material
 	blur.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

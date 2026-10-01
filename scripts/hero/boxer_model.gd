@@ -105,6 +105,7 @@ var wind_step := -1
 var _torso_yaw := 0.0
 var _leg_yaw := 0.0
 var _clock := 0.0
+var _flash_shown := -1.0
 
 
 func _ready() -> void:
@@ -444,7 +445,11 @@ func _arm_of(step: int, side: int) -> bool:
 
 func _apply_flash() -> void:
 	if body != null:
-		_rig_mesh.set_instance_shader_parameter("hit_flash", hurt)
+		# Etappe 4 Teil D: write the instance uniform only when it changes.
+		var f := snappedf(hurt, 0.02)
+		if f != _flash_shown:
+			_flash_shown = f
+			_rig_mesh.set_instance_shader_parameter("hit_flash", f)
 		return
 	for item in _parts:
 		item.set_instance_shader_parameter("hit_flash", hurt)

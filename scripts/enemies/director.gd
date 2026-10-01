@@ -40,6 +40,12 @@ var density_scale := 1.0
 var paused := false
 ## Seconds into the Endwelle (0 = not yet).
 var endwave := 0.0
+## Stage 4 Teil A (worlds): the curves run on world time plus a head start
+## (clock_offset = head start - world start, added to the elapsed time battle
+## passes in); health and density factors of the current world.
+var clock_offset := 0.0
+var world_hp := 1.0
+var world_density := 1.0
 ## Current pack sides (angles in rad) and the angle of the last pack (tests).
 var sides: Array[float] = []
 var last_angle := 0.0
@@ -72,7 +78,15 @@ func reset(seed_value: int = 4242) -> void:
 func wanted(elapsed: float) -> int:
 	if endwave > 0.0:
 		return T.ENEMY_CAP
-	return mini(T.ENEMY_CAP, int(round(T.curve(T.DENSITY, elapsed) * density_scale)))
+	return mini(T.ENEMY_CAP, int(round(T.curve(T.DENSITY, elapsed) * density_scale * world_density)))
+
+
+## Stage 4 Teil A: scaling of world `index` (0..2) starting at run time `start`.
+func set_world(index: int, start: float) -> void:
+	index = clampi(index, 0, PT.WORLD_COUNT - 1)
+	world_hp = float(PT.WORLD_HP[index])
+	world_density = float(PT.WORLD_DENSITY[index])
+	clock_offset = (PT.WORLD_HEAD_START if index > 0 else 0.0) - start
 
 
 ## Number of pack sides at this time (2..4).
@@ -83,6 +97,7 @@ func side_count(elapsed: float) -> int:
 func step(delta: float, elapsed: float, hero_at: Vector3) -> void:
 	if horde == null:
 		return
+	elapsed = maxf(0.0, elapsed + clock_offset)
 	_step_sides(delta, elapsed)
 	pack_clock -= delta
 	var alive: int = horde.count()
@@ -121,7 +136,7 @@ func _step_sides(delta: float, elapsed: float) -> void:
 
 ## Enemy health / speed multipliers of the Endwelle (1 before 6:00).
 func hp_mult() -> float:
-	return pow(PT.END_HP_GROWTH, endwave / PT.END_HP_STEP) if endwave > 0.0 else 1.0
+	return world_hp * (pow(PT.END_HP_GROWTH, endwave / PT.END_HP_STEP) if endwave > 0.0 else 1.0)
 
 
 func speed_mult() -> float:

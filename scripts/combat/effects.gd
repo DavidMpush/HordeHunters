@@ -162,6 +162,25 @@ func splat(at: Vector3, tint: Color, size: float) -> void:
 		_push(splats, {"at": Vector3(at.x + offset.x, 0.03 + 0.002 * k, at.z + offset.z), "color": tint, "size": blot, "age": 0.0}, 120)
 
 
+## Etappe 4 Teil D (shader warm-up): every batch and the blast wedge drawn
+## once at `at` (below the ground, hidden by depth) so their shaders compile
+## at the run start, not on the first shot / kill / slam. Call after step()
+## in the same frame (shader_warmup.gd does, for two frames).
+func warm_up(at: Vector3) -> void:
+	_build()
+	var tiny := Transform3D(Basis.from_scale(Vector3.ONE * 0.05), at)
+	for batch in [_tracer_batch, _tracer_core_batch, _flash_batch, _core_batch, _smoke_batch, _spark_batch, _shell_batch, _puff_batch, _ring_batch, _splat_batch]:
+		var fx := batch as MultiMeshInstance3D
+		if fx.call("count") == 0:
+			fx.call("begin")
+		fx.call("add", tiny, Color(1, 1, 1, 0.01))
+		fx.call("finish")
+	if blasts.is_empty():
+		blast(at, Vector3.FORWARD, 1.0, 0.4)
+		blasts[0].at = at
+		_draw_blasts()
+
+
 func clear() -> void:
 	for list in [tracers, flashes, smokes, sparks, shells, puffs, rings, splats, blasts]:
 		list.clear()

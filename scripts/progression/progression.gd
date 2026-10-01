@@ -12,8 +12,14 @@ extends Node
 #   level-up   run.pending_levels > 0 -> level choice (stats + shotgun track)
 #   cocoons    hold in the ring -> pay (map) -> burst -> chest choice
 #   relics     thorns (Dornenweste) on hero.hurt, Jagdtrophäe heal on kills
+#   evolution  an "evolution" card (elite/boss cocoon, progress.gd) turns the
+#              weapon into its evolved form: signal evolved(weapon_id) after
+#              the pick (sound / banner hooks), gold ring + shake at the hero.
 # Public: choose(slot), reroll(), paused(), drop_xp/drop_gold/drop_chest,
 # reset(). Hero stats: hero.build = progress (hero.stat(id)).
+
+## Stage 4 Teil B: a weapon evolved (progress.is_evolved(weapon_id) is true now).
+signal evolved(weapon_id: String)
 
 const PROGRESS := preload("res://scripts/progression/progress.gd")
 const LOOT := preload("res://scripts/progression/loot.gd")
@@ -178,6 +184,9 @@ func choose(slot: int) -> Dictionary:
 	choice.close()
 	if battle.sfx != null:
 		battle.sfx.play("ui", 1.2)
+	if String(entry.get("type", "")) == "evolution" and progress.is_evolved(String(entry.id)):
+		_evolution_moment()
+		evolved.emit(String(entry.id))
 	# Several level-ups at once: the next choice follows right away.
 	if not battle.run.dead and battle.run.pending_levels > 0:
 		open_level()
@@ -207,6 +216,17 @@ func _on_burst(entry: Dictionary) -> void:
 	if battle.sfx != null:
 		battle.sfx.play("slam", 1.4)
 	open_chest(String(entry.kind), rolled)
+
+
+# Evolution taken: gold and violet rings burst from the hero, a short shake.
+func _evolution_moment() -> void:
+	var at: Vector3 = battle.hero.position
+	if battle.effects != null:
+		battle.effects.ring(at, Color(1.0, 0.85, 0.3, 0.95), 0.4, 4.5, 0.5)
+		battle.effects.ring(at, Color(0.75, 0.5, 1.0, 0.85), 0.2, 3.0, 0.4)
+		battle.effects.dust(at, 8, 0.9, Color(1.0, 0.9, 0.6, 0.7))
+	if battle.shake != null:
+		battle.shake.shake(0.3)
 
 
 # Hero numbers that are not read live (max health): keeps the missing health

@@ -18,7 +18,9 @@ const PROGRESS := preload("res://scripts/progression/progress.gd")
 
 const ROW_TOP := 270.0
 const ROW_H := 196.0
-const ROW_GAP := 16.0
+const ROW_GAP := 14.0
+## Rows end here (FERTIG starts at 1400).
+const ROW_BOTTOM := 1380.0
 const BADGE := Vector2(196.0, 56.0)
 const HINT := "Ausgeschaltete Waffen kommen in keinem Lauf als neue Waffe."
 
@@ -73,8 +75,16 @@ func state(index: int) -> String:
 	return "on" if SESSION.profile().is_weapon_enabled(String(entry.id)) else "off"
 
 
+## Row height: ROW_H, squeezed so every weapon fits above FERTIG (stage 4: 7 weapons).
+func row_height() -> float:
+	var count := maxi(1, entries().size())
+	var room := ROW_BOTTOM - ROW_TOP - float(count - 1) * ROW_GAP
+	return minf(ROW_H, floorf(room / float(count)))
+
+
 func row_rect(index: int) -> Rect2:
-	return Rect2(Vector2(size.x * 0.5 - 410.0, _oy() + ROW_TOP + float(index) * (ROW_H + ROW_GAP)), Vector2(820.0, ROW_H))
+	var h := row_height()
+	return Rect2(Vector2(size.x * 0.5 - 410.0, _oy() + ROW_TOP + float(index) * (h + ROW_GAP)), Vector2(820.0, h))
 
 
 func switch_rect(index: int) -> Rect2:
@@ -140,15 +150,17 @@ func _draw_row(index: int) -> void:
 	var s := state(index)
 	var active := s == "on" or s == "start"
 	Kit.panel(self, row, "dark", UiStyle.R_L, UiStyle.STROKE_M)
-	var pc := Vector2(row.position.x + 92.0, row.get_center().y)
+	var plate := minf(124.0, row.size.y - 24.0)
+	var pc := Vector2(row.position.x + 30.0 + plate * 0.5, row.get_center().y)
 	var plate_tone: String = "ember" if s == "start" else ("loot" if s == "on" else "dark")
-	Kit.icon_plate(self, pc, 124.0, plate_tone)
-	Icons.draw(self, String(entry.icon), Kit.plate_center(pc, 124.0), 92.0)
-	var x0 := row.position.x + 176.0
+	Kit.icon_plate(self, pc, plate, plate_tone)
+	Icons.draw(self, String(entry.icon), Kit.plate_center(pc, plate), plate * 0.74)
+	var x0 := pc.x + plate * 0.5 + 22.0
 	var text_w := row.end.x - 24.0 - BADGE.x - 20.0 - x0
 	var name_color := Color.WHITE if active else UiStyle.BRAWL_TEXT_DIM
-	Kit.text_outlined(self, Vector2(x0, row.position.y + 54.0), String(entry.name).to_upper(), UiStyle.T_HEAD, name_color, -1, -1, null, Kit.LEFT | Kit.MIDDLE, text_w)
-	Kit.paragraph(self, Vector2(x0, row.position.y + 98.0), String(entry.text), text_w, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, false, Kit.LEFT, 2)
+	var k := row.size.y / ROW_H
+	Kit.text_outlined(self, Vector2(x0, row.position.y + 54.0 * k), String(entry.name).to_upper(), UiStyle.T_HEAD, name_color, -1, -1, null, Kit.LEFT | Kit.MIDDLE, text_w)
+	Kit.paragraph(self, Vector2(x0, row.position.y + 98.0 * k - 6.0 * (1.0 - k)), String(entry.text), text_w, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, false, Kit.LEFT, 2)
 	if not active:
 		# Switched off or locked: the row sinks back (the control stays bright).
 		Kit.rrect(self, row.grow(-3.0), UiStyle.R_L - 3.0, Color(0.04, 0.03, 0.1, 0.4))

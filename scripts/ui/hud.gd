@@ -11,6 +11,8 @@ extends Control
 #              damage per source, NOCHMAL (stage 2), MENÜ (stage 3)
 #   stage 2  - XP bar with level and gold counter under the top row, price
 #              pills over cocoons
+#   stage 4  - SIEG! result after the last world's boss (run.won), the world
+#              reached under the ribbon, black fade of the portal transition
 # Reads everything from battle.gd; never changes game state.
 
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
@@ -20,11 +22,14 @@ const RUN := preload("res://scripts/core/run.gd")
 const Icons := preload("res://scripts/ui/icons.gd")
 const CHESTS := preload("res://scripts/progression/chests.gd")
 const SESSION := preload("res://scripts/core/session.gd")
+const BIOMES := preload("res://scripts/world/biomes.gd")
 
 const POP_LIFE := 0.75
 const POP_RISE := 70.0
 const MAX_POPUPS := 36
 const RESULT_DELAY := 0.9
+## Stage 4: a won run shows its result a little later (the last boss sinks).
+const RESULT_DELAY_WIN := 1.8
 const RESULT_PANEL_Y := 152.0
 const NORMAL := Color("fff6e8")
 const KILL := Color("ffd23c")
@@ -45,6 +50,8 @@ var _top: Control
 var _overlay: Control
 var _top_key := []
 var _overlay_shown := false
+var _fade_shown := false
+var _evolved_hooked := false
 
 
 func _ready() -> void:
@@ -94,6 +101,7 @@ func clear() -> void:
 
 func _process(delta: float) -> void:
 	_clock += delta
+	_hook_evolved()
 	hurt_flash = maxf(0.0, hurt_flash - delta * 2.5)
 	for index in range(popups.size() - 1, -1, -1):
 		popups[index].age += delta
@@ -105,8 +113,10 @@ func _process(delta: float) -> void:
 		if key != _top_key:
 			_top_key = key
 			_top.queue_redraw()
-	if result_visible() or _overlay_shown:
+	var fading := _fade() > 0.0
+	if result_visible() or _overlay_shown or fading or _fade_shown:
 		_overlay_shown = result_visible()
+		_fade_shown = fading
 		_overlay.queue_redraw()
 
 
@@ -146,7 +156,18 @@ func result_panel_height() -> float:
 
 
 func result_visible() -> bool:
-	return battle != null and battle.run.dead and battle.run.since_death >= RESULT_DELAY
+	return battle != null and battle.run.dead and battle.run.since_death >= _result_delay()
+
+
+func _result_delay() -> float:
+	return RESULT_DELAY_WIN if battle != null and bool(battle.run.get("won")) else RESULT_DELAY
+
+
+## Stage 4 Teil A: black screen of the portal transition (worlds.gd), 0..1.
+func _fade() -> float:
+	if battle == null or battle.get("worlds") == null:
+		return 0.0
+	return float(battle.worlds.fade)
 
 
 func _draw() -> void:
@@ -362,9 +383,12 @@ func _band(pts: Array, edge: Color, inner: Color) -> void:
 
 
 func _draw_result(c: CanvasItem) -> void:
+	var black := _fade()
+	if black > 0.0:
+		c.draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.01, 0.04, black))
 	if not result_visible():
 		return
-	var appear := clampf((battle.run.since_death - RESULT_DELAY) / 0.3, 0.0, 1.0)
+	var appear := clampf((battle.run.since_death - _result_delay()) / 0.3, 0.0, 1.0)
 	Kit.dim(c, Rect2(Vector2.ZERO, size), 0.78 * appear)
 	if appear < 0.05:
 		return
@@ -372,8 +396,13 @@ func _draw_result(c: CanvasItem) -> void:
 	var cx := size.x * 0.5
 	var run: RefCounted = battle.run
 	var ribbon := Rect2(Vector2(cx - 280.0, _result_top() + rise), Vector2(560.0, 112.0))
-	Kit.ribbon(c, ribbon, "danger")
-	Kit.text_outlined(c, ribbon.get_center() + Vector2(0, -4), "GEFALLEN", UiStyle.T_HERO, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	var won := bool(run.get("won"))
+	Kit.ribbon(c, ribbon, "loot" if won else "danger")
+	Kit.text_outlined(c, ribbon.get_center() + Vector2(0, -4), "SIEG!" if won else "GEFALLEN", UiStyle.T_HERO, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
+	# Stage 4: how far the run came (world n of 3) under the ribbon.
+	var reached := _world_line(won)
+	if reached != "":
+		Kit.text_outlined(c, Vector2(cx, ribbon.end.y + 20.0), reached, UiStyle.T_LABEL + 2, UiStyle.brawl_tone("loot" if won else "info")["light"], -1, -1, null, Kit.CENTER | Kit.MIDDLE)
 	var panel := Rect2(Vector2(cx - 410.0, _result_top() + RESULT_PANEL_Y + rise), Vector2(820.0, result_panel_height()))
 	Kit.panel(c, panel)
 	var inner := panel.grow(-30.0)
@@ -436,6 +465,43 @@ func _draw_result(c: CanvasItem) -> void:
 	Kit.paragraph(c, Vector2(cx - 340.0, button.end.y + 26.0), "Enter · R: nochmal   ·   M · Esc: Menü", 680.0, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, false, Kit.CENTER, 1)
 
 
+# Stage 4 (Teil B signal): "EVOLUTION: <Name>" in the banner style of the
+# pressure HUD when an evolution card was taken. Null-safe: connected once
+# progression exists and has the signal.
+func _hook_evolved() -> void:
+	if _evolved_hooked or battle == null:
+		return
+	var progression: Node = battle.get("progression")
+	if progression == null:
+		return
+	_evolved_hooked = true
+	if progression.has_signal("evolved"):
+		progression.connect("evolved", _on_evolved)
+
+
+func _on_evolved(weapon_id: String) -> void:
+	var pressure: Node = battle.get("pressure")
+	if pressure == null or not pressure.has_method("_banner"):
+		return
+	var label := weapon_id.to_upper()
+	var progress: RefCounted = battle.get("progress")
+	if progress != null and progress.has_method("evolution_def"):
+		label = String(progress.evolution_def(weapon_id).get("name", label)).to_upper()
+	pressure._banner("EVOLUTION: %s" % label, "special")
+
+
+# "WELT 2/3 · DÜRRSCHLUND" (death) or "ALLE 3 WELTEN BEZWUNGEN" (victory).
+func _world_line(won: bool) -> String:
+	if battle.get("worlds") == null:
+		return ""
+	if won:
+		return "ALLE 3 WELTEN BEZWUNGEN"
+	var index := int(battle.world_index)
+	var biome := String(battle.worlds.biome_of(index))
+	var title := String(BIOMES.get_data(biome).get("title", biome.to_upper()))
+	return "WELT %d/3 · %s" % [index + 1, title]
+
+
 # House glyph for the MENÜ button (roof, body, door).
 func _home_glyph(c: CanvasItem, center: Vector2, r: float) -> void:
 	var roof := PackedVector2Array([center + Vector2(-r * 1.25, -r * 0.1), center + Vector2(0, -r * 1.2), center + Vector2(r * 1.25, -r * 0.1)])
@@ -474,3 +540,8 @@ func _build_chip(c: CanvasItem, rect: Rect2, item: Dictionary) -> void:
 	if String(item.type) != "relic" and int(item.rank) >= int(item.max):
 		rank_text = "MAX"
 	Kit.text_outlined(c, Vector2(x0, rect.position.y + 54.0), rank_text, UiStyle.T_LABEL, t["light"], -1, -1, null, Kit.LEFT | Kit.MIDDLE, width)
+	# Stage 4: evolved weapons carry an EVO mark.
+	if bool(item.get("evolved", false)):
+		var mark := Rect2(Vector2(rect.end.x - 66.0, rect.position.y + 40.0), Vector2(58.0, 28.0))
+		Kit.chip(c, mark, "special")
+		Kit.text_outlined(c, mark.get_center(), "EVO", UiStyle.T_LABEL - 4, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)

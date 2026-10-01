@@ -76,7 +76,7 @@ func _run() -> void:
 	var ids: Array = []
 	for entry in sheet.entries():
 		ids.append(String(entry.id))
-	check(ids == ["shotgun", "fists", "axe", "sword", "grenade"], "five weapons in order (%s)" % str(ids))
+	check(ids == ["shotgun", "fists", "axe", "sword", "grenade", "pistols", "lightning"], "seven weapons in order (%s)" % str(ids))
 	for k in ids.size():
 		check(view.encloses(sheet.row_rect(k)) and not sheet.row_rect(k).intersects(sheet.done_rect()), "row %d inside the screen, clear of FERTIG" % k)
 	# Brann: shotgun is the start weapon, fists are Brine's.

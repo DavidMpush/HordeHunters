@@ -9,8 +9,19 @@ extends "res://scripts/weapons/weapon.gd"
 #   Rank 1 base, 2 more damage + faster, 3 radius +25 %, 4 more damage +
 #   faster, 5 double spin, 6 Klingensturm (radius +20 %, +30 % damage).
 #   Damage x power_factor().
+#   Evolution "Klingenorkan" (partner relic Siebenmeilenstiefel): whirl +20 %
+#   and two ice-blue blades orbit the hero all the time (ORBIT_SPEED); every
+#   enemy they sweep takes ORBIT_SHARE of the damage, at most every
+#   ORBIT_REHIT s. A faint ground ring shows their reach.
 
 const FX := preload("res://scripts/weapons/weapon_fx.gd")
+const ORBIT_SPEED := 7.0
+const ORBIT_WINDOW := 0.35
+const ORBIT_SHARE := 0.55
+const ORBIT_REHIT := 0.5
+const ORBIT_KNOCK := [4.0, 1.5, 0.0]
+const STORM_RADIUS := 1.2
+const STORM_STEEL := Color("9fe8ff")
 
 const COOLDOWN := 2.5
 const RADIUS := 2.7
@@ -28,6 +39,15 @@ var _orbit_angle := 0.0
 var _second_left := -1.0
 var fx: Node3D
 var _blade: Node3D
+## Klingenorkan: orbit angle, hits so far, rehit clock per enemy index.
+var orbit_phase := 0.0
+var orbit_hits := 0
+var _orbit_clock := 0.0
+var _orbit_prune := 0.0
+var _orbit_last: Dictionary = {}
+var _orbit_batch: Dictionary = {}
+var _orbit_blades: Array[Node3D] = []
+var _orbit_ring: MeshInstance3D
 
 
 func _init() -> void:
@@ -44,7 +64,7 @@ func _ready() -> void:
 	_blade.name = "Blade"
 	add_child(_blade)
 	_blade.top_level = true
-	_build_blade()
+	_build_blade(_blade, Color("dfe7f2"))
 	_blade.visible = false
 
 
@@ -54,12 +74,16 @@ func reset() -> void:
 	last_hits = {}
 	orbit_left = -1.0
 	_second_left = -1.0
+	orbit_phase = 0.0
+	orbit_hits = 0
+	_orbit_last.clear()
 	if fx != null:
 		fx.clear()
+	_show_orbit(false)
 
 
 func radius() -> float:
-	return RADIUS * (1.25 if rank() >= 3 else 1.0) * (1.2 if rank() >= 6 else 1.0) * range_mult()
+	return RADIUS * (1.25 if rank() >= 3 else 1.0) * (1.2 if rank() >= 6 else 1.0) * (STORM_RADIUS if evolved() else 1.0) * range_mult()
 
 
 func cooldown() -> float:
@@ -76,7 +100,12 @@ func step(delta: float) -> void:
 		fx.step(delta)
 	_animate(delta)
 	if not can_act():
+		_show_orbit(false)
 		return
+	if evolved():
+		orbit(delta)
+	else:
+		_show_orbit(false)
 	cooldown_left = maxf(0.0, cooldown_left - delta)
 	if _second_left > 0.0:
 		_second_left -= delta
@@ -140,12 +169,86 @@ func _animate(delta: float) -> void:
 		orbit_left = -1.0
 
 
+## Klingenorkan: the two orbiting blades move on and sweep every enemy whose
+## body they pass (each at most every ORBIT_REHIT s). No allocation unless
+## something is hit. Returns the kills.
+func orbit(delta: float) -> int:
+	orbit_phase = fposmod(orbit_phase + ORBIT_SPEED * delta, TAU)
+	_orbit_clock += delta
+	_orbit_prune += delta
+	if _orbit_prune > 2.0:
+		_orbit_prune = 0.0
+		_orbit_last.clear()
+	var at := hero_at()
+	var r := radius()
+	_place_orbit(at, r)
+	_orbit_batch.clear()
+	var base := damage() * ORBIT_SHARE
+	for i in horde.count():
+		var p: Vector3 = horde.position_of(i)
+		if _swept(at, p, r + float(horde.radius_of_kind(horde.kind_of(i)))) and float(_orbit_last.get(i, -1.0)) <= _orbit_clock:
+			_orbit_last[i] = _orbit_clock + ORBIT_REHIT
+			var out := Vector3(p.x - at.x, 0.0, p.z - at.z).normalized()
+			_orbit_batch[i] = {"damage": roll_damage(base), "dir": (out + Vector3(-out.z, 0.0, out.x) * 0.5).normalized(), "knock": knock_by_mass(i, ORBIT_KNOCK)}
+	if boss_in_circle(at, r) and float(_orbit_last.get(BOSS_SLOT, -1.0)) <= _orbit_clock and _swept(at, horde.position_of(BOSS_SLOT), r + float(horde._boss_radius())):
+		_orbit_last[BOSS_SLOT] = _orbit_clock + ORBIT_REHIT
+		_orbit_batch[BOSS_SLOT] = {"damage": roll_damage(base), "dir": Vector3.FORWARD}
+	if _orbit_batch.is_empty():
+		return 0
+	orbit_hits += _orbit_batch.size()
+	if _fx():
+		for i in _orbit_batch:
+			var p: Vector3 = horde.position_of(i)
+			effects.hit_sparks(Vector3(p.x, 0.8, p.z), _orbit_batch[i].dir, 2)
+	_sound("hit", 1.25)
+	return apply(_orbit_batch)
+
+
+# Is `p` (reach = blade length + body) under one of the two blades?
+func _swept(at: Vector3, p: Vector3, reach: float) -> bool:
+	var dx := p.x - at.x
+	var dz := p.z - at.z
+	var d2 := dx * dx + dz * dz
+	if d2 > reach * reach or d2 < 0.09:
+		return false
+	var diff := absf(wrapf(atan2(dx, dz) - orbit_phase, -PI, PI))
+	return diff < ORBIT_WINDOW or PI - diff < ORBIT_WINDOW
+
+
+func _place_orbit(at: Vector3, r: float) -> void:
+	if _blade == null:
+		return
+	if _orbit_blades.is_empty():
+		for k in 2:
+			var node := Node3D.new()
+			node.name = "OrbitBlade%d" % k
+			add_child(node)
+			node.top_level = true
+			_build_blade(node, STORM_STEEL)
+			_orbit_blades.append(node)
+		_orbit_ring = ground_ring(_orbit_blades[0], Color(0.55, 0.9, 1.0, 0.35))
+		_orbit_ring.top_level = true
+	for k in 2:
+		var node := _orbit_blades[k]
+		node.visible = true
+		node.global_transform = Transform3D(Basis(Vector3.UP, orbit_phase + PI * float(k)).scaled(Vector3(1.15, 1.0, r / RADIUS)), at + Vector3.UP * 0.8)
+	_orbit_ring.visible = true
+	_orbit_ring.global_transform = Transform3D(Basis.from_scale(Vector3(r, 0.25, r)), at + Vector3.UP * 0.07)
+
+
+func _show_orbit(on: bool) -> void:
+	for node in _orbit_blades:
+		node.visible = on
+	if _orbit_ring != null:
+		_orbit_ring.visible = on
+
+
 # Blade along local +Z from the hilt at 0.45 m to the tip at RADIUS.
-func _build_blade() -> void:
+func _build_blade(target: Node3D, steel: Color) -> void:
 	var length := RADIUS - 0.5
-	part(_blade, box(Vector3(0.1, 0.12, 0.34)), Color("5a3420"), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.35)))
-	part(_blade, box(Vector3(0.5, 0.1, 0.1)), Color("e8b64a"), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.55)))
-	part(_blade, box(Vector3(0.22, 0.05, length)), Color("dfe7f2"), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.6 + length * 0.5)))
+	part(target, box(Vector3(0.1, 0.12, 0.34)), Color("5a3420"), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.35)))
+	part(target, box(Vector3(0.5, 0.1, 0.1)), Color("e8b64a"), Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.55)))
+	part(target, box(Vector3(0.22, 0.05, length)), steel, Transform3D(Basis.IDENTITY, Vector3(0, 0, 0.6 + length * 0.5)))
 	var tip := PrismMesh.new()
 	tip.size = Vector3(0.22, 0.3, 0.05)
-	part(_blade, tip, Color("ffffff"), Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0, 0, 0.6 + length + 0.15)))
+	part(target, tip, Color("ffffff"), Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0, 0, 0.6 + length + 0.15)))

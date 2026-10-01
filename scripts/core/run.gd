@@ -20,6 +20,10 @@ var shots := 0
 var damage_dealt := 0.0
 var damage_taken := 0.0
 var dead := false
+## Stage 4 Teil A: the boss of the last world fell. A won run counts as ended
+## (`dead` is set too, so everything that stops on death stops), but the hero
+## lives; the result screen shows SIEG!.
+var won := false
 ## Seconds since death (the result screen appears after a short beat).
 var since_death := 0.0
 var runs := 1
@@ -43,6 +47,7 @@ func reset() -> void:
 	damage_dealt = 0.0
 	damage_taken = 0.0
 	dead = false
+	won = false
 	since_death = 0.0
 	xp = 0.0
 	xp_total = 0.0
@@ -109,6 +114,15 @@ func spend_gold(amount: int) -> bool:
 		return false
 	gold -= amount
 	return true
+
+
+## The run is won (worlds.gd): ends it like a death, without `died`.
+func win() -> void:
+	if dead:
+		return
+	won = true
+	dead = true
+	since_death = 0.0
 
 
 func die() -> void:

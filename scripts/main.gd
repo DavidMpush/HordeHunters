@@ -58,6 +58,9 @@ func _wire_session() -> void:
 	pause.menu_requested.connect(go_to_menu)
 	battle.controls.menu_requested.connect(go_to_menu)
 	battle.run_ended.connect(func() -> void: SESSION.record_run(battle.run))
+	# Stage 4: a won run (boss of world 3) is booked like a finished one.
+	if battle.has_signal("run_won"):
+		battle.run_won.connect(func() -> void: SESSION.record_run(battle.run))
 	battle.hero.hurt.connect(func(damage: float, _from: Vector3) -> void: SESSION.vibrate(clampi(int(25.0 + damage * 2.0), 25, 90)))
 
 
@@ -67,7 +70,8 @@ func go_to_menu() -> void:
 
 
 ## (Re)builds the map for `seed_value` in biome `id`, puts the hero on the start
-## point and snaps the camera. Safe to call again for a restart.
+## point and snaps the camera. Safe to call again for a restart; stage 4: the
+## portal (scripts/core/worlds.gd) calls it for the next world of the run.
 func start_world(seed_value: int, id: String = BIOMES.DEFAULT) -> void:
 	world_seed = seed_value
 	biome_id = id if BIOMES.has(id) else BIOMES.DEFAULT

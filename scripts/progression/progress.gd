@@ -25,11 +25,18 @@ extends RefCounted
 #   damage_mult, fire_rate_mult, reload_mult, range_mult, fan_mult,
 #   pellets_bonus, pierce, knockback_mult, mag_bonus, crit, speed_mult,
 #   max_hp_bonus, regen, armor, magnet_mult, xp_mult, gold_mult, luck,
-#   dash_cooldown_mult, thorns, trophy_heal
+#   dash_cooldown_mult, thorns, trophy_heal, fists_damage_mult, grenade_radius_mult
+#
+# Evolutions (stage 4, Teil B), Vampire-Survivors rule: a weapon on MAX_LEVEL
+# plus its partner relic (EVOLUTIONS[id].relic) -> the next elite ("free") or
+# boss cocoon deals the "evolution" card first (guaranteed). Taking it marks the
+# weapon in `evolved`; weapons read is_evolved(id) (weapon.gd evolved()) and
+# change name, icon (EVOLUTIONS[id].icon) and effect. Partner relics of a
+# weapon on PARTNER_LEVEL+ come first in cocoons with PARTNER_CHANCE.
 #
 # Offer entries (Dictionary), also stored in `picks`:
-#   {"type": "stat"|"weapon"|"new_weapon"|"relic"|"gold", "id", "name", "text",
-#    "rarity", "icon", "from", "to", "before", "after", "label", "amount"}
+#   {"type": "stat"|"weapon"|"new_weapon"|"relic"|"gold"|"evolution", "id",
+#    "name", "text", "rarity", "icon", "from", "to", "before", "after", "label", "amount"}
 
 const RARITIES := ["common", "uncommon", "rare", "epic", "legendary"]
 const RARITY_FACTOR := {"common": 1.0, "uncommon": 1.25, "rare": 1.5, "epic": 2.0, "legendary": 3.0}
@@ -40,7 +47,7 @@ const MAX_RANK := 5
 const SLOTS := 6
 const RELIC_SLOTS := 6
 const RELIC_MAX_STACK := 3
-const RELIC_STACK_LIMIT := {"ahnenamulett": 1, "bleihagel": 2, "patronengurt": 2, "kriegstrommel": 2}
+const RELIC_STACK_LIMIT := {"ahnenamulett": 1, "bleihagel": 2, "patronengurt": 2, "kriegstrommel": 2, "eisenbandagen": 2, "brandsatz": 2}
 const REROLLS_PER_RUN := 1
 const CHOICES := 3
 ## Cocoons: share of relic cards (rest stats).
@@ -79,7 +86,7 @@ const SECOND_WEAPON_SHARE := 0.3
 const OWNED_WEIGHT := 3.0
 ## Every weapon: intro (NEUE WAFFE card, Arsenal), steps = levels 2..6,
 ## signature = hero id whose body it needs ("" = every hero may take it).
-const WEAPON_ORDER := ["shotgun", "fists", "axe", "sword", "grenade"]
+const WEAPON_ORDER := ["shotgun", "fists", "axe", "sword", "grenade", "pistols", "lightning"]
 const WEAPONS := {
 	"shotgun": {"name": "Schrotflinte", "icon": "shotgun", "signature": "",
 		"intro": "Zwei Schuss, dann Nachladen. Ein Schrotfächer wirft leichte Gegner um.", "steps": [
@@ -121,7 +128,46 @@ const WEAPONS := {
 		{"name": "Splitterhagel", "text": "+1 Granate je Wurf"},
 		{"name": "Streubombe", "text": "+1 Granate je Wurf"},
 	]},
+	"pistols": {"name": "Doppelpistolen", "icon": "pistols", "signature": "",
+		"intro": "Zwei Pistolen feuern abwechselnd auf die zwei nächsten Gegner", "steps": [
+		{"name": "Schnellfeuer", "text": "Schießt 25 % schneller"},
+		{"name": "Durchschlag", "text": "Kugeln treffen 1 weiteren Gegner"},
+		{"name": "Hohlspitz", "text": "+35 % Schaden"},
+		{"name": "Doppelschuss", "text": "Jeder Schuss feuert 2 Kugeln"},
+		{"name": "Meisterschütze", "text": "+1 Durchschlag, +25 % Reichweite"},
+	]},
+	"lightning": {"name": "Blitzkette", "icon": "lightning", "signature": "",
+		"intro": "Ein Blitz springt von Gegner zu Gegner und unterbricht Angriffe", "steps": [
+		{"name": "Weiter Sprung", "text": "+1 Sprung, Sprungweite +20 %"},
+		{"name": "Hochspannung", "text": "+30 % Schaden, blitzt schneller"},
+		{"name": "Gabelung", "text": "Die Kette teilt sich am ersten Ziel"},
+		{"name": "Überladung", "text": "+2 Sprünge"},
+		{"name": "Doppelblitz", "text": "Zwei Ketten je Entladung"},
+	]},
 }
+
+## Evolution per weapon: name, partner relic, icon variant, card text.
+const EVOLUTIONS := {
+	"shotgun": {"name": "Drachenatem", "relic": "pulverhorn", "icon": "shotgun_evo",
+		"text": "Feuerkegel und explodierende Kugeln, +2 Kugeln"},
+	"fists": {"name": "Titanenfäuste", "relic": "eisenbandagen", "icon": "fists_evo",
+		"text": "Jeder Schlag löst eine Schockwelle aus, +40 % Schaden"},
+	"axe": {"name": "Blutmond-Axt", "relic": "jagdtrophaee", "icon": "axe_evo",
+		"text": "Vier riesige Blutäxte, +50 % Schaden, Treffer heilen"},
+	"sword": {"name": "Klingenorkan", "relic": "siebenmeilenstiefel", "icon": "sword_evo",
+		"text": "Zwei Klingen kreisen ständig um dich, Wirbel +20 %"},
+	"grenade": {"name": "Napalm", "relic": "brandsatz", "icon": "grenade_evo",
+		"text": "Größere Explosionen hinterlassen brennende Flächen"},
+	"pistols": {"name": "Kugelhagel", "relic": "kriegstrommel", "icon": "pistols_evo",
+		"text": "Drei Kugeln je Schuss, fast doppeltes Tempo, +2 Durchschlag"},
+	"lightning": {"name": "Gewittersturm", "relic": "lockstein", "icon": "lightning_evo",
+		"text": "Blitzeinschlag am ersten Ziel, +3 Sprünge"},
+}
+## Cocoon kinds that deal a ready evolution (not the paid map cocoon).
+const EVOLUTION_CHESTS := ["free", "boss"]
+## A weapon from this level on pulls its partner relic to the front of cocoons.
+const PARTNER_LEVEL := 4
+const PARTNER_CHANCE := 0.5
 
 const RELICS := [
 	{"id": "pulverhorn", "name": "Pulverhorn", "text": "Schrotflinte lädt 15 % schneller nach", "rarity": "common", "icon": "horn", "needs": "shotgun"},
@@ -135,6 +181,8 @@ const RELICS := [
 	{"id": "bleihagel", "name": "Bleihagel", "text": "Schrotflinte: +2 Kugeln je Schuss", "rarity": "epic", "icon": "shells", "needs": "shotgun"},
 	{"id": "patronengurt", "name": "Patronengurt", "text": "Schrotflinte: +1 Schuss im Magazin", "rarity": "epic", "icon": "belt", "needs": "shotgun"},
 	{"id": "ahnenamulett", "name": "Ahnenamulett", "text": "+25 % Schaden und +25 Max-LP", "rarity": "legendary", "icon": "amulet"},
+	{"id": "eisenbandagen", "name": "Eisenbandagen", "text": "Fäuste: +15 % Schaden", "rarity": "rare", "icon": "bandage", "needs": "fists"},
+	{"id": "brandsatz", "name": "Brandsatz", "text": "Granate: Explosion 15 % größer", "rarity": "rare", "icon": "firepot", "needs": "grenade"},
 ]
 
 var ranks: Dictionary = {}
@@ -147,6 +195,8 @@ var weapon_ranks: Dictionary = {"shotgun": 1}
 var weapon_units: Dictionary = {"shotgun": 1.0}
 ## Weapons switched off in the menu's Arsenal (kept over reset()).
 var disabled: Array = []
+## Evolved weapons of this run (ids, in evolution order).
+var evolved: Array[String] = []
 var relics: Dictionary = {}
 var picks: Array[Dictionary] = []
 var rerolls := REROLLS_PER_RUN
@@ -168,6 +218,7 @@ func reset(seed_value: int = 20202) -> void:
 	weapons.clear()
 	weapon_ranks.clear()
 	weapon_units.clear()
+	evolved.clear()
 	_own_start_weapon()
 	rerolls = REROLLS_PER_RUN
 	chests_bought = 0
@@ -270,6 +321,7 @@ func set_start_weapon(id: String) -> void:
 	weapons.clear()
 	weapon_ranks.clear()
 	weapon_units.clear()
+	evolved.clear()
 	_own_start_weapon()
 	_cache.clear()
 
@@ -329,6 +381,63 @@ func weapon_candidates() -> Array:
 	return out
 
 
+# ---------------------------------------------------------------- evolutions
+
+static func evolution_def(id: String) -> Dictionary:
+	return EVOLUTIONS.get(id, {})
+
+
+## Partner relic id of weapon `id` ("" if none).
+static func partner_relic(id: String) -> String:
+	return String(EVOLUTIONS.get(id, {}).get("relic", ""))
+
+
+## Weapon id whose evolution needs relic `relic_id` ("" if none).
+static func partner_weapon(relic_id: String) -> String:
+	for id in EVOLUTIONS:
+		if String(EVOLUTIONS[id].relic) == relic_id:
+			return String(id)
+	return ""
+
+
+func is_evolved(id: String) -> bool:
+	return evolved.has(id)
+
+
+## Can weapon `id` evolve now? Owned on MAX_LEVEL, partner relic owned, not yet evolved.
+func can_evolve(id: String) -> bool:
+	if not EVOLUTIONS.has(id) or is_evolved(id) or weapon_rank(id) < MAX_LEVEL:
+		return false
+	return stacks(partner_relic(id)) > 0
+
+
+## Weapons ready to evolve, in pick order.
+func evolution_ready() -> Array:
+	var out: Array = []
+	for id in weapons:
+		if can_evolve(id):
+			out.append(id)
+	return out
+
+
+## Shown name / icon of an owned weapon (the evolved form once evolved).
+func weapon_name(id: String) -> String:
+	return String(EVOLUTIONS[id].name) if is_evolved(id) else String(weapon_def(id).get("name", id))
+
+
+func weapon_icon(id: String) -> String:
+	return String(EVOLUTIONS[id].icon) if is_evolved(id) else String(weapon_def(id).get("icon", ""))
+
+
+## EVOLUTION card of weapon `id` (always legendary, level stays MAX_LEVEL).
+func evolution_entry(id: String) -> Dictionary:
+	var e := evolution_def(id)
+	var base := String(weapon_def(id).get("name", id))
+	return {"type": "evolution", "id": id, "name": e.name, "rarity": "legendary", "icon": e.icon,
+		"from": MAX_LEVEL, "to": MAX_LEVEL, "base": base, "relic": e.relic,
+		"label": "%s wird zu %s" % [base, e.name], "text": String(e.text)}
+
+
 # Takes one id out of `pool`, owned weapons weighted OWNED_WEIGHT.
 func _pop_weapon(pool: Array) -> String:
 	var total := 0.0
@@ -360,7 +469,12 @@ func stat(id: String) -> float:
 		"fan_mult":
 			value = 0.7 if weapon_rank("shotgun") >= 6 else 1.0
 		"pellets_bonus":
-			value = (1.0 if weapon_rank("shotgun") >= 2 else 0.0) + 2.0 * stacks("bleihagel")
+			value = (1.0 if weapon_rank("shotgun") >= 2 else 0.0) + 2.0 * stacks("bleihagel") + (2.0 if is_evolved("shotgun") else 0.0)
+		# Weapon relics of stage 4 (Eisenbandagen, Brandsatz).
+		"fists_damage_mult":
+			value = 1.0 + 0.15 * stacks("eisenbandagen")
+		"grenade_radius_mult":
+			value = 1.0 + 0.15 * stacks("brandsatz")
 		"pierce":
 			value = 1.0 if weapon_rank("shotgun") >= 3 else 0.0
 		"knockback_mult":
@@ -480,12 +594,27 @@ func roll_level_offers(count: int = CHOICES) -> Array:
 	return offers
 
 
-## Cocoon: relics and stats, at least CHEST_FLOOR[kind].
+## Cocoon: relics and stats, at least CHEST_FLOOR[kind]. Elite and boss
+## cocoons deal a ready evolution first (guaranteed, one per cocoon); a partner
+## relic of a weapon on PARTNER_LEVEL+ comes first with PARTNER_CHANCE.
 func roll_chest_offers(kind: String, count: int = CHOICES) -> Array:
 	var minimum := String(CHEST_FLOOR.get(kind, "common"))
 	var offers: Array = []
 	var stat_pool := stat_candidates()
 	var relic_pool := relic_candidates()
+	if EVOLUTION_CHESTS.has(kind):
+		var ready := evolution_ready()
+		if not ready.is_empty():
+			offers.append(evolution_entry(String(ready[0])))
+	var partners: Array = []
+	for id in weapons:
+		var relic := partner_relic(id)
+		if relic != "" and not is_evolved(id) and weapon_rank(id) >= PARTNER_LEVEL and stacks(relic) == 0 and relic_pool.has(relic):
+			partners.append(relic)
+	if not partners.is_empty() and offers.size() < count and rng.randf() < PARTNER_CHANCE:
+		var pid: String = partners[rng.randi_range(0, partners.size() - 1)]
+		relic_pool.erase(pid)
+		offers.append(relic_entry(pid))
 	var tries := 0
 	while offers.size() < count and tries < 12:
 		tries += 1
@@ -565,10 +694,16 @@ static func power_factor(units_value: float) -> float:
 	return 0.75 + 0.25 * maxf(1.0, units_value)
 
 
+## Relic card; a partner relic of an owned, not yet evolved weapon names the
+## evolution it opens ("· Evolution: Drachenatem").
 func relic_entry(id: String) -> Dictionary:
 	var d := relic_def(id)
+	var text := String(d.text)
+	var partner := partner_weapon(id)
+	if partner != "" and has_weapon(partner) and not is_evolved(partner):
+		text += " · Evolution: %s" % String(EVOLUTIONS[partner].name)
 	return {"type": "relic", "id": id, "name": d.name, "rarity": d.rarity, "icon": d.icon,
-		"from": stacks(id), "to": stacks(id) + 1, "label": d.text, "text": d.text}
+		"from": stacks(id), "to": stacks(id) + 1, "label": d.text, "text": text}
 
 
 func gold_entry() -> Dictionary:
@@ -625,6 +760,11 @@ func apply(entry: Dictionary, source: String = "level", time: float = 0.0) -> in
 		"relic":
 			var rid := String(entry.id)
 			relics[rid] = mini(relic_limit(rid), stacks(rid) + 1)
+		"evolution":
+			var eid := String(entry.id)
+			if not can_evolve(eid):
+				return 0
+			evolved.append(eid)
 		"gold":
 			gold = int(entry.get("amount", GOLD_CARD))
 	_cache.clear()
@@ -654,12 +794,14 @@ func chest_price() -> int:
 
 ## Build overview for the result: [{"type", "id", "name", "icon", "rank", "max", "rarity"}]
 ## (stats, weapons with their level, relics in pick order), best rarity per item.
+## An evolved weapon shows its evolved name and icon, rarity legendary and
+## "evolved": true (the evolution pick itself adds no item).
 func build_summary() -> Array:
 	var out: Array = []
 	var seen := {}
 	for pick in picks:
 		var type := String(pick.type)
-		if type == "gold":
+		if type == "gold" or type == "evolution":
 			continue
 		if type == "new_weapon":
 			type = "weapon"
@@ -679,6 +821,11 @@ func build_summary() -> Array:
 			"weapon":
 				item["rank"] = weapon_rank(String(item.id))
 				item["max"] = MAX_LEVEL
+				item["evolved"] = is_evolved(String(item.id))
+				if item.evolved:
+					item.name = weapon_name(String(item.id))
+					item.icon = weapon_icon(String(item.id))
+					item.rarity = "legendary"
 			"relic":
 				item["rank"] = stacks(String(item.id))
 				item["max"] = relic_limit(String(item.id))

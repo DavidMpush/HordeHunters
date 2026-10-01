@@ -17,6 +17,10 @@ extends Node3D
 # through horde.gd (BOSS_SLOT), which never pushes it. The hero cannot walk
 # through the body. Damage only when the hero's centre is inside the shown
 # shape at the moment of the strike.
+# Stage 4 Teil A: configure() makes the same machine the boss of world 2
+# (Sandwurm model, +SANDSTURZ: a lane telegraph, then a dash along it) and of
+# world 3 (Aschenkröte model, +GLUTREGEN: four landing spots, one on the hero);
+# more health and damage (pressure_tuning.gd BOSSES).
 
 signal attack_started(pattern: int, center: Vector3)
 signal attack_landed(pattern: int, center: Vector3, hit: bool)
@@ -33,10 +37,12 @@ const MODEL_PATHS := ["res://assets/enemies/BogKing_game.glb", "res://assets/ene
 const DUST := Color(0.56, 0.42, 0.28, 0.6)
 const DYING_SECONDS := 1.4
 
-enum State { ARRIVING, CHASE, WINDUP, AIR, RECOVER, DYING, DEAD }
-enum Pattern { STOMP, LEAP, SWEEP }
+enum State { ARRIVING, CHASE, WINDUP, AIR, RECOVER, DYING, DEAD, DASH }
+enum Pattern { STOMP, LEAP, SWEEP, CHARGE, ERUPT }
 const CYCLE := [Pattern.STOMP, Pattern.LEAP, Pattern.SWEEP]
-const PATTERN_NAMES := {Pattern.STOMP: "Stampfer", Pattern.LEAP: "Sprung", Pattern.SWEEP: "Rundumschlag"}
+const PATTERN_NAMES := {Pattern.STOMP: "Stampfer", Pattern.LEAP: "Sprung", Pattern.SWEEP: "Rundumschlag",
+	Pattern.CHARGE: "Sandsturz", Pattern.ERUPT: "Glutregen"}
+const LANE_SHADER := preload("res://shaders/boss_lane.gdshader")
 
 var arena: Node3D
 var hero: Node3D
@@ -59,6 +65,18 @@ var clock := 0.0
 ## Test log: every attack {pattern, shown (clock), struck (clock), hit}.
 var attacks: Array[Dictionary] = []
 var hits_landed := 0
+## Stage 4 Teil A: boss of world 2 / 3 (configure() before add_child): name in
+## the HUD, attack cycle (one extra attack), damage factor, model and size.
+var id := "moorkoenig"
+var title := "MOORKÖNIG"
+var cycle: Array = CYCLE.duplicate()
+var damage_mult := 1.0
+var model_length := PT.BOSS_LENGTH
+var erupt_spots: Array[Vector3] = []
+var _config: Dictionary = {}
+var _charge_zone: MeshInstance3D
+var _erupt_zones: Array[MeshInstance3D] = []
+var _rim := Color("d8b8ff")
 
 var _body: Node3D
 var _model: Node3D
@@ -86,6 +104,47 @@ func setup(arena_node: Node3D, hero_node: Node3D, effects_node: Node3D) -> void:
 	arena = arena_node
 	hero = hero_node
 	effects = effects_node
+
+
+## Stage 4 Teil A: turns the Moorkönig into the boss of another world
+## (pressure_tuning.gd BOSSES entry). Call before add_child.
+func configure(config: Dictionary) -> void:
+	_config = config
+	id = String(config.get("id", id))
+	title = String(config.get("title", title))
+	max_health = float(config.get("hp", PT.BOSS_HP))
+	health = max_health
+	body_radius = float(config.get("radius", PT.BOSS_RADIUS))
+	model_length = float(config.get("length", PT.BOSS_LENGTH))
+	damage_mult = float(config.get("damage", 1.0))
+	_rim = config.get("rim", _rim)
+	cycle = CYCLE.duplicate()
+	match String(config.get("extra", "")):
+		"charge":
+			cycle.append(Pattern.CHARGE)
+		"erupt":
+			cycle.append(Pattern.ERUPT)
+
+
+## Distance to the hero at which `which` starts.
+func _trigger(which: int) -> float:
+	match which:
+		Pattern.STOMP:
+			return PT.STOMP_TRIGGER
+		Pattern.SWEEP:
+			return PT.SWEEP_TRIGGER
+		Pattern.CHARGE:
+			return PT.CHARGE_TRIGGER
+		Pattern.ERUPT:
+			return PT.ERUPT_TRIGGER
+	return PT.LEAP_FAR
+
+
+func _hero_lead() -> Vector3:
+	if hero != null and is_instance_valid(hero) and hero.get("velocity") is Vector3:
+		var v: Vector3 = hero.velocity
+		return (Vector3(v.x, 0.0, v.z) * PT.LEAP_LEAD).limit_length(PT.LEAP_LEAD_MAX)
+	return Vector3.ZERO
 
 
 func is_targetable() -> bool:
@@ -119,6 +178,14 @@ func danger_zone() -> Dictionary:
 			return {"pattern": pattern, "center": zone_center, "radius": PT.STOMP_RADIUS, "dir": zone_dir, "half": PI, "left": left}
 		Pattern.LEAP:
 			return {"pattern": pattern, "center": zone_center, "radius": PT.LEAP_RADIUS, "dir": zone_dir, "half": PI, "left": left}
+		Pattern.CHARGE:
+			return {"pattern": pattern, "center": zone_center, "radius": PT.CHARGE_LENGTH, "dir": zone_dir, "half": atan2(PT.CHARGE_WIDTH * 0.5, 5.0), "left": left}
+		Pattern.ERUPT:
+			var nearest := zone_center
+			for spot in erupt_spots:
+				if spot.distance_to(_hero_at()) < nearest.distance_to(_hero_at()):
+					nearest = spot
+			return {"pattern": pattern, "center": nearest, "radius": PT.ERUPT_RADIUS, "dir": zone_dir, "half": PI, "left": left}
 	return {"pattern": pattern, "center": zone_center, "radius": PT.SWEEP_REACH, "dir": zone_dir, "half": deg_to_rad(PT.SWEEP_HALF_DEG), "left": left}
 
 
@@ -157,14 +224,13 @@ func step(delta: float) -> void:
 				chase_time = 0.0
 		State.CHASE:
 			chase_time += delta
-			pattern = CYCLE[cycle_index]
-			var forced := pattern != Pattern.LEAP and (d > PT.LEAP_FAR or chase_time > PT.CHASE_PATIENCE)
+			pattern = cycle[cycle_index % cycle.size()]
+			var reach := _trigger(pattern)
+			var forced := pattern != Pattern.LEAP and (d > maxf(PT.LEAP_FAR, reach) or chase_time > PT.CHASE_PATIENCE)
 			if pattern == Pattern.LEAP or forced:
 				_start(Pattern.LEAP, hero_at, not forced)
-			elif pattern == Pattern.STOMP and d <= PT.STOMP_TRIGGER:
-				_start(Pattern.STOMP, hero_at, true)
-			elif pattern == Pattern.SWEEP and d <= PT.SWEEP_TRIGGER:
-				_start(Pattern.SWEEP, hero_at, true)
+			elif d <= reach:
+				_start(pattern, hero_at, true)
 			else:
 				moved = _walk(delta, hero_at)
 		State.WINDUP:
@@ -188,6 +254,18 @@ func step(delta: float) -> void:
 				position = Vector3(leap_to.x, 0.0, leap_to.z)
 				_strike()
 			_progress_zones()
+		State.DASH:
+			# Sandsturz: shoots along the shown lane (the hit was decided at the strike).
+			timer -= delta
+			var k := clampf(1.0 - timer / PT.CHARGE_DASH, 0.0, 1.0)
+			var flat_dash := leap_from.lerp(leap_to, 1.0 - pow(1.0 - k, 2.0))
+			position = Vector3(flat_dash.x, 0.0, flat_dash.z)
+			if effects != null and is_instance_valid(effects) and fmod(clock, 0.08) < delta:
+				effects.dust(position, 2, 0.8)
+			if timer <= 0.0:
+				position = Vector3(leap_to.x, 0.0, leap_to.z)
+				state = State.RECOVER
+				timer = PT.RECOVER
 		State.RECOVER:
 			timer -= delta
 			if timer <= 0.0:
@@ -199,7 +277,7 @@ func step(delta: float) -> void:
 				state = State.DEAD
 				visible = false
 				defeated.emit(Vector3(position.x, 0.0, position.z))
-	if state != State.AIR and state != State.DEAD and state != State.DYING:
+	if state != State.AIR and state != State.DEAD and state != State.DYING and state != State.DASH:
 		_push_hero()
 	_pose(delta, moved)
 
@@ -220,6 +298,24 @@ func _start(next: int, hero_at: Vector3, advance: bool) -> void:
 		Pattern.SWEEP:
 			timer = PT.SWEEP_WINDUP
 			zone_center = here
+		Pattern.CHARGE:
+			timer = PT.CHARGE_WINDUP
+			zone_center = here
+			leap_from = here
+			var motion := zone_dir * PT.CHARGE_LENGTH
+			var end := here + motion
+			if arena != null and is_instance_valid(arena) and arena.has_method("resolve_motion"):
+				end = arena.resolve_motion(here, motion, 1.2)
+			leap_to = Vector3(end.x, 0.0, end.z)
+		Pattern.ERUPT:
+			timer = PT.ERUPT_WINDUP
+			zone_center = hero_at + _hero_lead()
+			erupt_spots.clear()
+			erupt_spots.append(zone_center)
+			var turn := clock * 1.7
+			for k in PT.ERUPT_COUNT - 1:
+				var a := turn + TAU * float(k) / float(PT.ERUPT_COUNT - 1)
+				erupt_spots.append(zone_center + Vector3(cos(a), 0.0, sin(a)) * PT.ERUPT_SPREAD)
 		Pattern.LEAP:
 			timer = PT.LEAP_CROUCH
 			var lead := Vector3.ZERO
@@ -241,7 +337,7 @@ func _start(next: int, hero_at: Vector3, advance: bool) -> void:
 			if (leap_to - here).length_squared() > 0.01:
 				facing = (leap_to - here).normalized()
 	if advance:
-		cycle_index = (cycle_index + 1) % CYCLE.size()
+		cycle_index = (cycle_index + 1) % cycle.size()
 	attacks.append({"pattern": next, "shown": clock, "struck": -1.0, "hit": false})
 	_show_zone(next)
 	attack_started.emit(next, zone_center)
@@ -263,6 +359,17 @@ func _strike() -> void:
 		Pattern.SWEEP:
 			inside = d <= PT.SWEEP_REACH and (d < 0.001 or zone_dir.dot(offset / d) >= cos(deg_to_rad(PT.SWEEP_HALF_DEG)))
 			damage = PT.SWEEP_DAMAGE
+		Pattern.CHARGE:
+			var along := offset.dot(zone_dir)
+			var side := (offset - zone_dir * along).length()
+			inside = along >= -body_radius and along <= PT.CHARGE_LENGTH and side <= PT.CHARGE_WIDTH * 0.5
+			damage = PT.CHARGE_DAMAGE
+		Pattern.ERUPT:
+			for spot in erupt_spots:
+				if hero_at.distance_to(spot) <= PT.ERUPT_RADIUS:
+					inside = true
+			damage = PT.ERUPT_DAMAGE
+	damage *= damage_mult
 	var landed := false
 	if inside and hero != null and is_instance_valid(hero) and hero.has_method("take_hit"):
 		landed = bool(hero.take_hit(damage, zone_center))
@@ -273,9 +380,20 @@ func _strike() -> void:
 		attacks[attacks.size() - 1].hit = landed
 	state = State.RECOVER
 	timer = PT.RECOVER_LEAP if pattern == Pattern.LEAP else PT.RECOVER
+	if pattern == Pattern.CHARGE:
+		state = State.DASH
+		timer = PT.CHARGE_DASH
 	_slam = 0.4
 	_hide_zones()
-	if effects != null and is_instance_valid(effects):
+	if effects != null and is_instance_valid(effects) and pattern == Pattern.ERUPT:
+		for spot in erupt_spots:
+			effects.ring(spot, Color(1.0, 0.49, 0.76, 0.95), 0.7, PT.ERUPT_RADIUS * 1.1, 0.45)
+			effects.ring(spot, Color(1.0, 0.55, 0.15, 0.8), 0.6, PT.ERUPT_RADIUS * 0.8, 0.6)
+			effects.dust(spot, 5, 1.0)
+	elif effects != null and is_instance_valid(effects) and pattern == Pattern.CHARGE:
+		effects.ring(zone_center + zone_dir * PT.CHARGE_LENGTH * 0.5, Color(1.0, 0.49, 0.76, 0.9), 0.6, PT.CHARGE_WIDTH * 1.2, 0.4)
+		effects.dust(zone_center, 6, 1.1)
+	elif effects != null and is_instance_valid(effects):
 		var reach := PT.STOMP_RADIUS if pattern == Pattern.STOMP else (PT.LEAP_RADIUS if pattern == Pattern.LEAP else PT.SWEEP_REACH)
 		var at := zone_center if pattern != Pattern.SWEEP else zone_center + zone_dir * PT.SWEEP_REACH * 0.55
 		effects.ring(at, Color(1.0, 0.49, 0.76, 0.95), 0.8, reach * 1.1, 0.45)
@@ -341,7 +459,10 @@ func _build() -> void:
 	_skin.set_shader_parameter("rim_strength", 0.8)
 	_skin.set_shader_parameter("rim_power", 2.2)
 	var placeholder := true
-	for path in MODEL_PATHS:
+	var paths: Array = MODEL_PATHS
+	if _config.has("model"):
+		paths = [String(_config.model)] + MODEL_PATHS
+	for path in paths:
 		if ResourceLoader.exists(path):
 			_model = (load(path) as PackedScene).instantiate()
 			placeholder = path.ends_with("Moorbrut_game.glb")
@@ -363,13 +484,23 @@ func _build() -> void:
 		# Swamp king look on the Moorbrut: darker moss tint, gold crown.
 		_skin.set_shader_parameter("body_tint", Color(0.45, 0.66, 0.32, 0.6))
 		_skin.set_shader_parameter("brightness", 1.45)
+	if not _config.is_empty() and not placeholder:
+		var tint: Color = _config.get("tint", Color(1, 1, 1, 0))
+		if tint.a > 0.0:
+			_skin.set_shader_parameter("body_tint", tint)
+		_skin.set_shader_parameter("rim_color", _rim)
 	_fit_model()
 	if placeholder:
 		_add_crown()
 	_shadow = _make_shadow()
-	_stomp_zone = _make_arc(PT.STOMP_RADIUS, PI, "Moorkoenig stomp")
-	_sweep_zone = _make_arc(PT.SWEEP_REACH, deg_to_rad(PT.SWEEP_HALF_DEG), "Moorkoenig sweep")
-	_leap_zone = _make_zone(PT.LEAP_RADIUS, "Moorkoenig landing")
+	_stomp_zone = _make_arc(PT.STOMP_RADIUS, PI, "Boss stomp")
+	_sweep_zone = _make_arc(PT.SWEEP_REACH, deg_to_rad(PT.SWEEP_HALF_DEG), "Boss sweep")
+	_leap_zone = _make_zone(PT.LEAP_RADIUS, "Boss landing")
+	if cycle.has(Pattern.CHARGE):
+		_charge_zone = _make_lane("Sandwurm lane")
+	if cycle.has(Pattern.ERUPT):
+		for k in PT.ERUPT_COUNT:
+			_erupt_zones.append(_make_zone(PT.ERUPT_RADIUS, "Aschenkroete spot %d" % k))
 	_hide_zones()
 
 
@@ -391,7 +522,7 @@ func _fit_model() -> void:
 		box = aabb if first else box.merge(aabb)
 		first = false
 	var extent := maxf(box.size.x, box.size.z)
-	var s := PT.BOSS_LENGTH / maxf(0.01, extent)
+	var s := model_length / maxf(0.01, extent)
 	_model.scale *= s
 	_model.position = Vector3(-box.get_center().x * s, -box.position.y * s, -box.get_center().z * s)
 	_top = box.size.y * s
@@ -477,9 +608,43 @@ func _make_zone(radius: float, node_name: String) -> MeshInstance3D:
 	return part
 
 
+## Sandsturz lane (boss_lane.gdshader): from the worm along local +Z.
+func _make_lane(node_name: String) -> MeshInstance3D:
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(PT.CHARGE_WIDTH + 0.6, PT.CHARGE_LENGTH + 0.6)
+	plane.center_offset = Vector3(0.0, 0.0, PT.CHARGE_LENGTH * 0.5)
+	var part := MeshInstance3D.new()
+	part.name = node_name
+	part.mesh = plane
+	var material := ShaderMaterial.new()
+	material.shader = LANE_SHADER
+	material.set_shader_parameter("width", PT.CHARGE_WIDTH)
+	material.set_shader_parameter("lane_length", PT.CHARGE_LENGTH)
+	material.render_priority = 2
+	part.material_override = material
+	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(part)
+	part.top_level = true
+	return part
+
+
+func _all_zones() -> Array:
+	var zones: Array = [_stomp_zone, _sweep_zone, _leap_zone, _charge_zone]
+	zones.append_array(_erupt_zones)
+	return zones
+
+
 func _show_zone(next: int) -> void:
 	_hide_zones()
+	if next == Pattern.ERUPT:
+		for k in mini(_erupt_zones.size(), erupt_spots.size()):
+			_erupt_zones[k].visible = true
+			_erupt_zones[k].global_transform = Transform3D(Basis.IDENTITY, Vector3(erupt_spots[k].x, 0.07, erupt_spots[k].z))
+		_progress_zones()
+		return
 	var zone: MeshInstance3D = _stomp_zone
+	if next == Pattern.CHARGE and _charge_zone != null:
+		zone = _charge_zone
 	if next == Pattern.SWEEP:
 		zone = _sweep_zone
 	elif next == Pattern.LEAP:
@@ -490,7 +655,7 @@ func _show_zone(next: int) -> void:
 
 
 func _hide_zones() -> void:
-	for zone in [_stomp_zone, _sweep_zone, _leap_zone]:
+	for zone in _all_zones():
 		if zone != null:
 			zone.visible = false
 
@@ -498,7 +663,7 @@ func _hide_zones() -> void:
 ## Shown telegraphs right now (tests, captures).
 func zones_visible() -> int:
 	var shown := 0
-	for zone in [_stomp_zone, _sweep_zone, _leap_zone]:
+	for zone in _all_zones():
 		if zone != null and zone.visible:
 			shown += 1
 	return shown
@@ -511,9 +676,13 @@ func _progress_zones() -> void:
 			total = PT.SWEEP_WINDUP
 		Pattern.LEAP:
 			total = PT.LEAP_CROUCH + PT.LEAP_AIR
+		Pattern.CHARGE:
+			total = PT.CHARGE_WINDUP
+		Pattern.ERUPT:
+			total = PT.ERUPT_WINDUP
 	var left := maxf(0.0, telegraph_left())
 	var progress := clampf(1.0 - left / total, 0.0, 1.0)
-	for zone in [_stomp_zone, _sweep_zone, _leap_zone]:
+	for zone in _all_zones():
 		if zone != null and zone.visible:
 			var material := zone.material_override as ShaderMaterial
 			material.set_shader_parameter("progress", progress)
@@ -590,7 +759,7 @@ func _pose(delta: float, speed: float) -> void:
 	_body.scale = Vector3(1.0 + squash * 0.5, 1.0 - squash, 1.0 + squash * 0.5)
 	_skin.set_shader_parameter("flash", 0.35 * _flash)
 	_skin.set_shader_parameter("windup", glow)
-	_skin.set_shader_parameter("rim_color", Color("ffe07a") if state == State.RECOVER else Color("d8b8ff"))
+	_skin.set_shader_parameter("rim_color", Color("ffe07a") if state == State.RECOVER else _rim)
 	var shadow_size := 1.0 - 0.5 * clampf(_air / PT.LEAP_HEIGHT, 0.0, 1.0)
 	_shadow.scale = Vector3(shadow_size, 1.0, shadow_size)
 
@@ -613,7 +782,7 @@ func _make_shadow() -> MeshInstance3D:
 	material.albedo_texture = texture
 	material.render_priority = 1
 	var plane := PlaneMesh.new()
-	plane.size = Vector2.ONE * PT.BOSS_LENGTH * 1.1
+	plane.size = Vector2.ONE * model_length * 1.1
 	var part := MeshInstance3D.new()
 	part.name = "Moorkoenig shadow"
 	part.mesh = plane

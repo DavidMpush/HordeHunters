@@ -8,7 +8,7 @@ extends SceneTree
 
 const T := preload("res://scripts/core/tuning.gd")
 const PROGRESS := preload("res://scripts/progression/progress.gd")
-const EXTRAS := ["axe", "sword", "grenade"]
+const EXTRAS := ["axe", "sword", "grenade", "pistols", "lightning"]
 const DT := 1.0 / 60.0
 
 var failures: Array[String] = []
@@ -55,10 +55,10 @@ func _offers() -> void:
 			if String(entry.type) == "new_weapon":
 				fresh += 1
 				check(int(entry.from) == 0 and int(entry.to) == 1, "NEUE WAFFE goes 0 -> 1")
-				check(EXTRAS.has(String(entry.id)), "Brann: new weapons are axe, sword, grenade (never the fists)")
+				check(EXTRAS.has(String(entry.id)), "Brann: new weapons are the extras (never the fists)")
 	check(fresh >= 40, "NEUE WAFFE offered while slots are free (%d)" % fresh)
 	# Fill the slots: shotgun + 3 extras = 4.
-	for id in EXTRAS:
+	for id in ["axe", "sword", "grenade"]:
 		p.apply(p.weapon_entry(id, "common"))
 	check(p.weapons.size() == PROGRESS.WEAPON_SLOTS and p.free_weapon_slots() == 0, "4 weapons fill the slots")
 	var ups := 0
@@ -92,7 +92,7 @@ func _offers() -> void:
 			if String(entry.id) == "shotgun":
 				gun_new += 1
 				check(String(entry.type) == "new_weapon", "shotgun only as NEUE WAFFE while not owned")
-	check(own >= 25, "fists upgrades offered often (%d / 120)" % own)
+	check(own >= 18, "fists upgrades offered often (%d / 120)" % own)
 	check(gun_new >= 5, "Brine may take the shotgun (%d / 120)" % gun_new)
 	check(b.relic_candidates().has("bleihagel") == false and b.relic_candidates().has("pulverhorn") == false, "no shotgun relics without the shotgun")
 	b.apply(b.weapon_entry("shotgun", "rare"))

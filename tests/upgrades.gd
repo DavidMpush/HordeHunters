@@ -101,7 +101,9 @@ func _unit() -> void:
 	r.apply(r.relic_entry("bleihagel"))
 	check(r.stacks("bleihagel") == 2, "Bleihagel stacks at most twice")
 	check(not r.relic_candidates().has("bleihagel"), "maxed relic no longer offered")
-	check(r.relic_candidates().size() == PROGRESS.RELICS.size() - 1, "other relics still offered")
+	# Relics of weapons Brann does not carry (stage 4: Eisenbandagen, Brandsatz) stay out.
+	var open := PROGRESS.RELICS.filter(func(e: Dictionary) -> bool: return String(e.get("needs", "")) == "" or r.has_weapon(String(e.needs))).size()
+	check(r.relic_candidates().size() == open - 1, "other relics still offered")
 	# Reroll: one per run.
 	check(r.use_reroll() and not r.use_reroll(), "one reroll per run")
 

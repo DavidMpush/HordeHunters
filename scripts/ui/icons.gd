@@ -4,7 +4,10 @@ extends RefCounted
 # look: flat fill, thick ink outline). Icons.draw(canvas, id, center, size)
 # draws into a square of `size` px around `center`. Ids: burst, clock, aim,
 # boot, heart, regen, shield, magnet, crit, gem, clover, shotgun, shells, horn,
-# flask, thorns, coin, trophy, belt, amulet, fists, axe, sword, grenade
+# flask, thorns, coin, trophy, belt, amulet, fists, axe, sword, grenade,
+# pistols, lightning, bandage, firepot and the evolved weapons (stage 4):
+# shotgun_evo, fists_evo, axe_evo, sword_evo, grenade_evo, pistols_evo,
+# lightning_evo - the base weapon recoloured over a burst aura
 # (unknown ids draw a star).
 
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
@@ -78,6 +81,47 @@ static func draw(c: CanvasItem, id: String, center: Vector2, size: float) -> voi
 			_sword(c, center, s)
 		"grenade":
 			_grenade(c, center, s)
+		"pistols":
+			_pistol(c, center + Vector2(-10, 4) * s, s, false, STEEL)
+			_pistol(c, center + Vector2(10, -6) * s, s, true, STEEL)
+		"lightning":
+			_bolt(c, center, s, Color("8fe8ff"))
+		"bandage":
+			_poly(c, _pts(center, s, [[-40, -14], [34, -34], [42, -6], [-32, 14]]), Color("f2e6cc"), 6.0 * s)
+			_poly(c, _pts(center, s, [[-36, 8], [38, -12], [44, 14], [-30, 34]]), Color("e2d2ae"), 6.0 * s)
+			for k in 3:
+				Kit.disc(c, center + Vector2(-14 + 22 * k, -12 - 6 * k) * s, 6.0 * s, Color("8a93a6"))
+		"firepot":
+			_star(c, center + Vector2(0, -20) * s, 26.0 * s, 12.0 * s, 7, Color("ff8a2c"))
+			_disc(c, center + Vector2(0, 14) * s, 28.0 * s, Color("7a4a2a"))
+			_poly(c, _pts(center, s, [[-20, -12], [20, -12], [20, -4], [-20, -4]]), Color("4a2c18"), 4.0 * s)
+			Kit.disc(c, center + Vector2(-10, 8) * s, 6.0 * s, Color(1, 1, 1, 0.35))
+		"shotgun_evo":
+			_aura(c, center, s, Color("ff6a1f"))
+			_shotgun(c, center, s)
+			_star(c, center + Vector2(-50, -10) * s, 20.0 * s, 9.0 * s, 6, Color("ffd24a"))
+		"fists_evo":
+			_aura(c, center, s, Color("ffbe1f"))
+			_fist(c, center + Vector2(-12, 6) * s, s * 0.85, true, Color("ffd86a"))
+			_fist(c, center + Vector2(16, -8) * s, s, false, Color("ffe8a0"))
+		"axe_evo":
+			_disc(c, center + Vector2(-8, 6) * s, 34.0 * s, Color("c4162e"))
+			Kit.disc(c, center + Vector2(4, -2) * s, 26.0 * s, Color("ff6a72"))
+			_axe(c, center, s, Color("ff3346"))
+		"sword_evo":
+			Kit.circle_ring(c, center, 44.0 * s, 8.0 * s, Color("9fe8ff"))
+			_sword(c, center + Vector2(-10, 0) * s, s * 0.9, Color("9fe8ff"))
+			_sword(c, center + Vector2(12, 0) * s, s * 0.9, Color("dff7ff"))
+		"grenade_evo":
+			_aura(c, center + Vector2(0, 10) * s, s, Color("ff4a14"))
+			_grenade(c, center, s)
+		"pistols_evo":
+			_aura(c, center, s, Color("ff3a2a"))
+			_pistol(c, center + Vector2(-10, 4) * s, s, false, Color("ffb08a"))
+			_pistol(c, center + Vector2(10, -6) * s, s, true, Color("ffb08a"))
+		"lightning_evo":
+			_aura(c, center, s, Color("a66bff"))
+			_bolt(c, center, s, Color("e2c8ff"))
 		"shells":
 			for k in 3:
 				_shell(c, center + Vector2(-24 + 24 * k, 4) * s, s)
@@ -205,8 +249,10 @@ static func _shotgun(c: CanvasItem, center: Vector2, s: float) -> void:
 
 
 # Bandaged fist seen from the front: a rounded block, four knuckles, thumb.
-static func _fist(c: CanvasItem, center: Vector2, s: float, back: bool) -> void:
+static func _fist(c: CanvasItem, center: Vector2, s: float, back: bool, override := Color(0, 0, 0, 0)) -> void:
 	var tint := Color("e6d6b4") if back else Color("f6ecd6")
+	if override.a > 0.0:
+		tint = override
 	_poly(c, _pts(center, s, [[-30, -22], [30, -22], [34, 20], [24, 34], [-24, 34], [-34, 20]]), tint, 6.0 * s)
 	for k in 4:
 		var x := -21.0 + 14.0 * k
@@ -216,17 +262,17 @@ static func _fist(c: CanvasItem, center: Vector2, s: float, back: bool) -> void:
 	c.draw_line(center + Vector2(-26, 22) * s, center + Vector2(26, 26) * s, Color("c9b48c"), 4.0 * s, true)
 
 
-static func _axe(c: CanvasItem, center: Vector2, s: float) -> void:
+static func _axe(c: CanvasItem, center: Vector2, s: float, steel := STEEL) -> void:
 	_poly(c, _pts(center, s, [[-34, 40], [-26, 46], [22, -14], [14, -20]]), WOOD, 6.0 * s)
 	var blade := _pts(center, s, [[4, -30], [26, -48], [46, -24], [40, 6], [20, -4]])
-	_poly(c, blade, STEEL, 7.0 * s)
+	_poly(c, blade, steel, 7.0 * s)
 	c.draw_line(center + Vector2(28, -44) * s, center + Vector2(42, -22) * s, WHITE, 5.0 * s, true)
 
 
-static func _sword(c: CanvasItem, center: Vector2, s: float) -> void:
+static func _sword(c: CanvasItem, center: Vector2, s: float, steel := STEEL) -> void:
 	# Swirl behind the blade.
 	Kit.circle_ring(c, center, 40.0 * s, 6.0 * s, Color(SKY, 0.8))
-	_poly(c, _pts(center, s, [[-6, 22], [6, 22], [6, -38], [0, -50], [-6, -38]]), STEEL, 6.0 * s)
+	_poly(c, _pts(center, s, [[-6, 22], [6, 22], [6, -38], [0, -50], [-6, -38]]), steel, 6.0 * s)
 	c.draw_line(center + Vector2(0, -40) * s, center + Vector2(0, 16) * s, WHITE, 3.0 * s, true)
 	_poly(c, _pts(center, s, [[-22, 20], [22, 20], [22, 28], [-22, 28]]), GOLD, 5.0 * s)
 	_poly(c, _pts(center, s, [[-5, 28], [5, 28], [5, 46], [-5, 46]]), Color("5a3420"), 4.0 * s)
@@ -240,6 +286,33 @@ static func _grenade(c: CanvasItem, center: Vector2, s: float) -> void:
 	Kit.circle_ring(c, center + Vector2(18, -34) * s, 9.0 * s, 4.0 * s, INK)
 	_star(c, center + Vector2(-4, -46) * s, 14.0 * s, 6.0 * s, 6, Color("ffd24a"))
 	Kit.disc(c, center + Vector2(-12, -2) * s, 7.0 * s, Color(1, 1, 1, 0.45))
+
+
+# Pistol in side view, muzzle left (flip: muzzle right): slide, grip, trigger guard.
+static func _pistol(c: CanvasItem, center: Vector2, s: float, flip: bool, steel: Color) -> void:
+	var f := -1.0 if flip else 1.0
+	var slide := PackedVector2Array()
+	for p in [[-40, -22], [20, -22], [20, -6], [-40, -6]]:
+		slide.append(center + Vector2(float(p[0]) * f, float(p[1])) * s)
+	_poly(c, slide, steel, 6.0 * s)
+	var grip := PackedVector2Array()
+	for p in [[2, -8], [20, -8], [26, 30], [8, 30]]:
+		grip.append(center + Vector2(float(p[0]) * f, float(p[1])) * s)
+	_poly(c, grip, WOOD, 6.0 * s)
+	Kit.circle_ring(c, center + Vector2(-4.0 * f, 2.0) * s, 8.0 * s, 4.0 * s, INK)
+	c.draw_line(center + Vector2(-36.0 * f, -15.0) * s, center + Vector2(14.0 * f, -15.0) * s, WHITE, 3.0 * s, true)
+
+
+# Zigzag lightning bolt.
+static func _bolt(c: CanvasItem, center: Vector2, s: float, fill: Color) -> void:
+	_poly(c, _pts(center, s, [[8, -48], [-26, 4], [-4, 4], [-14, 48], [28, -10], [4, -10], [18, -48]]), fill, 6.0 * s)
+	c.draw_line(center + Vector2(10, -40) * s, center + Vector2(-12, -2) * s, WHITE, 3.0 * s, true)
+
+
+# Spiky glow behind an evolved weapon.
+static func _aura(c: CanvasItem, center: Vector2, s: float, fill: Color) -> void:
+	_star(c, center, 50.0 * s, 32.0 * s, 12, Color(fill, 0.95), false)
+	_star(c, center, 38.0 * s, 26.0 * s, 12, Color(fill.lightened(0.4), 0.8), false)
 
 
 static func _shell(c: CanvasItem, center: Vector2, s: float) -> void:

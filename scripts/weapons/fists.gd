@@ -15,6 +15,8 @@ extends "res://scripts/weapons/weapon.gd"
 # Levels (progress.gd WEAPONS.fists, 1 = base, 2..6): wider arcs (+-65 /
 # +-100), 25 % faster combo, uppercut shockwave, life steal per landed strike,
 # fourth strike "Hammerfaust" (all round). Damage x power_factor() (rarity).
+# Stage 4: relic Eisenbandagen (fists_damage_mult); evolution "Titanenfäuste"
+# (evolved()): +40 % damage, golden swipes, a shockwave on every strike.
 
 signal struck(step: int, hits: int, kills: int)
 
@@ -40,6 +42,12 @@ const SHOCK_RADIUS := 2.9
 const SHOCK_DAMAGE := 10.0
 const LIFESTEAL := 1.5
 const NAMES := ["Links", "Rechts", "Aufwärtshaken", "Hammerfaust"]
+## Titanenfäuste (evolution, partner Eisenbandagen): +40 % damage and a
+## shockwave on every strike (replaces the uppercut wave of level 4).
+const TITAN_MULT := 1.4
+const TITAN_RADIUS := 2.0
+const TITAN_DAMAGE := 9.0
+const TITAN_KNOCK := [5.0, 2.5, 0.4]
 
 var step_index := 0
 ## > 0: the next strike is winding (seconds left).
@@ -50,6 +58,7 @@ var idle := 0.0
 var strikes := 0
 var combos := 0
 var healed := 0.0
+var titan_waves := 0
 ## Last strike (tests): {"step", "dir", "half", "reach", "hits": {index: data}}.
 var last_strike: Dictionary = {}
 var fx: Node3D
@@ -76,6 +85,7 @@ func reset() -> void:
 	strikes = 0
 	combos = 0
 	healed = 0.0
+	titan_waves = 0
 	last_strike = {}
 	if fx != null:
 		fx.clear()
@@ -174,7 +184,7 @@ func strike(step: int) -> int:
 		push = push.normalized() if push.length_squared() > 0.0001 else dir
 		# Knock mostly along the punch, a little outwards (fans the crowd open).
 		var along := (dir * 0.6 + push * 0.4).normalized()
-		hits[index] = {"damage": roll_damage(base * power_factor()), "dir": along, "knock": knock_by_mass(index, knock)}
+		hits[index] = {"damage": roll_damage(base * strike_mult()), "dir": along, "knock": knock_by_mass(index, knock)}
 		if _fx():
 			effects.hit_sparks(Vector3(p.x, 0.9, p.z), along, 3 if step < 2 else 6)
 			# White impact puff where the fist lands.
@@ -190,7 +200,7 @@ func strike(step: int) -> int:
 	if fx != null:
 		match step:
 			0, 1:
-				fx.swipe(at, dir, reach_now + 0.45, half, 0.22, 1.0 if step == 0 else -1.0, Color(0.72, 0.86, 1.0), reach_now * 0.3, 1.0, 0.3)
+				fx.swipe(at, dir, reach_now + 0.45, half, 0.22, 1.0 if step == 0 else -1.0, Color(1.0, 0.78, 0.3) if evolved() else Color(0.72, 0.86, 1.0), reach_now * 0.3, 1.0, 0.3)
 			2:
 				fx.swipe(at, dir, reach_now + 0.7, half, 0.3, 1.0, Color(1.0, 0.82, 0.38), reach_now * 0.2, 1.05, 0.3)
 			_:
@@ -204,12 +214,15 @@ func strike(step: int) -> int:
 			hitstop_requested.emit(HITSTOP_FRAMES)
 		if _fx():
 			effects.dust(at + dir * 0.6, 4 if step == 2 else 6, 0.7)
-		if step == 2 and rank() >= 4:
+		if step == 2 and rank() >= 4 and not evolved():
 			killed += _shockwave(at)
 		if step == 3 and _fx():
 			effects.ring(at, Color(1.0, 0.9, 0.6, 0.8), 0.6, reach_now, 0.3)
 	else:
 		_sound("dash", 1.7 + 0.15 * float(step))
+	# Titanenfäuste: every strike sends a shockwave from where the fist lands.
+	if evolved():
+		killed += _titan_wave(at + dir * reach_now * 0.7, step)
 	if landed > 0:
 		_sound("hit", 1.15 - 0.1 * float(step))
 		if rank() >= 5 and not hero.is_dead():
@@ -238,6 +251,30 @@ func _shockwave(at: Vector3) -> int:
 	if _fx():
 		effects.ring(at, Color(1.0, 0.95, 0.75, 0.85), 0.5, radius, 0.32)
 		effects.dust(at, 6, 0.8)
+	return apply(hits)
+
+
+## Damage factor of a strike: rarity power, Eisenbandagen, evolution.
+func strike_mult() -> float:
+	return power_factor() * _stat("fists_damage_mult") * (TITAN_MULT if evolved() else 1.0)
+
+
+# Titanenfäuste: a golden shockwave round `center` (bigger on the uppercut and
+# the Hammerfaust); everything inside is hit and pushed out.
+func _titan_wave(center: Vector3, step: int) -> int:
+	var radius := TITAN_RADIUS * (1.35 if step >= 2 else 1.0) * range_mult()
+	var hits := {}
+	for index in enemies_in_circle(center, radius):
+		var p: Vector3 = horde.position_of(index)
+		var out := Vector3(p.x - center.x, 0.0, p.z - center.z)
+		out = out.normalized() if out.length_squared() > 0.0001 else aim
+		hits[index] = {"damage": roll_damage(TITAN_DAMAGE * strike_mult()), "dir": out, "knock": knock_by_mass(index, TITAN_KNOCK)}
+	titan_waves += 1
+	if _fx():
+		effects.ring(center, Color(1.0, 0.82, 0.25, 0.95), 0.4, radius, 0.28)
+		effects.ring(center, Color(1.0, 1.0, 0.85, 0.8), 0.2, radius * 0.6, 0.2)
+		effects.dust(center, 4, 0.9, Color(1.0, 0.9, 0.6, 0.7))
+	_shake(0.08)
 	return apply(hits)
 
 
