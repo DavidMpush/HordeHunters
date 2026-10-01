@@ -1,0 +1,26 @@
+.godot/
+*.tmp
+*.log
+.claude/settings.local.json
+preview.png
+preview.png.import
+preview_*.png
+preview_*.png.import
+# Review frames of the tests/capture_*.gd scripts (regenerable); the folder and
+# its .gdignore (no import) stay in the repository.
+previews/*
+!previews/.gdignore
+
+.tools/
+assets/source/*/*_texture_*.png
+assets/source/*/*_texture_*.png.import
+
+# Nutzer-Originale (Hunyuan-GLBs + Texturen) bleiben lokal; die reduzierten
+# Spielversionen unter assets/gameplay/ sind versioniert.
+/assets/*.glb
+/assets/*.glb.import
+/assets/*_texture_pbr_*.png
+/assets/*_texture_pbr_*.png.import
+
+__pycache__/
+build/

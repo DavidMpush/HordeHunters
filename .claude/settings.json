@@ -1,0 +1,56 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1:*)",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File tools/capture.ps1:*)",
+      "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File tools/test.ps1:*)",
+      "PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File tools/capture.ps1:*)",
+      "PowerShell(& tools/test.ps1:*)",
+      "PowerShell(& tools/capture.ps1:*)",
+      "Bash(\"/c/Users/vrxby/Documents/Codex/Godot/Godot_v4.7.2-stable_win64_console.exe\":*)",
+      "PowerShell(& 'C:\\Users\\vrxby\\Documents\\Codex\\Godot\\Godot_v4.7.2-stable_win64_console.exe':*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(grep:*)",
+      "Bash(wc:*)",
+      "Read(//c/Users/vrxby/Documents/Codex/HordeHunters/**)",
+      "Read(//c/Users/vrxby/Documents/Codex/Godot/Mawlings/**)",
+      "Read(//c/Users/vrxby/Documents/Codex/Swarm/**)",
+      "Edit(//c/Users/vrxby/Documents/Codex/HordeHunters/scripts/**)",
+      "Edit(//c/Users/vrxby/Documents/Codex/HordeHunters/shaders/**)",
+      "Edit(//c/Users/vrxby/Documents/Codex/HordeHunters/tests/**)",
+      "Edit(//c/Users/vrxby/Documents/Codex/HordeHunters/stages/**)",
+      "Edit(//c/Users/vrxby/Documents/Codex/HordeHunters/*.md)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf:*)",
+      "Edit(//c/Users/vrxby/Documents/Codex/Swarm/**)",
+      "Edit(//c/Users/vrxby/Documents/Codex/HordeHunters/assets/source/**)",
+      "Edit(//c/Users/vrxby/Documents/Codex/Godot/Mawlings/**)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/tools/hooks/check_gdscript.js\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
