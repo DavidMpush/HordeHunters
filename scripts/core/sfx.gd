@@ -39,6 +39,8 @@ func _ready() -> void:
 		enabled = false
 	for k in POOL_SIZE:
 		var player := AudioStreamPlayer.new()
+		# Stage 3: effects follow the EFFEKTE volume (bus from audio_settings.gd).
+		player.bus = &"SFX"
 		add_child(player)
 		_pool.append(player)
 

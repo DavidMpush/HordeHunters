@@ -8,7 +8,7 @@ extends Control
 #              number per enemy and shot, kills gold and bigger)
 #   vignette - red edge flash on a hit, pulse at low health
 #   result   - GEFALLEN: time, kills, level, the build ("DEIN BUILD") and
-#              damage per source, NOCHMAL (stage 2)
+#              damage per source, NOCHMAL (stage 2), MENÜ (stage 3)
 #   stage 2  - XP bar with level and gold counter under the top row, price
 #              pills over cocoons
 # Reads everything from battle.gd; never changes game state.
@@ -19,6 +19,7 @@ const T := preload("res://scripts/core/tuning.gd")
 const RUN := preload("res://scripts/core/run.gd")
 const Icons := preload("res://scripts/ui/icons.gd")
 const CHESTS := preload("res://scripts/progression/chests.gd")
+const SESSION := preload("res://scripts/core/session.gd")
 
 const POP_LIFE := 0.75
 const POP_RISE := 70.0
@@ -28,6 +29,12 @@ const RESULT_PANEL_Y := 152.0
 const NORMAL := Color("fff6e8")
 const KILL := Color("ffd23c")
 const HEAVY := Color("ff9a3c")
+## Stage 3: room at the top right for the pause button (ui/pause_screen.gd).
+const PAUSE_SLOT := 96.0
+## Result buttons: MENÜ (left) and NOCHMAL (right) in one row.
+const RESULT_MENU_W := 250.0
+const RESULT_AGAIN_W := 430.0
+const RESULT_GAP := 20.0
 
 var battle: Node
 var popups: Array[Dictionary] = []
@@ -62,7 +69,7 @@ func _layer(layer_name: String, painter: Callable) -> Control:
 
 
 func add_damage(at: Vector3, amount: float, kind: int, killed: bool) -> void:
-	if amount < 0.5:
+	if amount < 0.5 or not SESSION.flag("damage_numbers"):
 		return
 	if popups.size() >= MAX_POPUPS:
 		popups.pop_front()
@@ -103,11 +110,22 @@ func _process(delta: float) -> void:
 		_overlay.queue_redraw()
 
 
-## NOCHMAL button of the result screen (900 x 1600 base, centred vertically).
+## NOCHMAL button of the result screen (900 x 1600 base, centred vertically):
+## right part of the button row under the panel.
 func result_button_rect() -> Rect2:
+	var left := size.x * 0.5 - (RESULT_MENU_W + RESULT_GAP + RESULT_AGAIN_W) * 0.5
+	return Rect2(Vector2(left + RESULT_MENU_W + RESULT_GAP, _result_buttons_y()), Vector2(RESULT_AGAIN_W, 136.0))
+
+
+## Stage 3: MENÜ button left of NOCHMAL (back to the title screen).
+func result_menu_rect() -> Rect2:
+	var left := size.x * 0.5 - (RESULT_MENU_W + RESULT_GAP + RESULT_AGAIN_W) * 0.5
+	return Rect2(Vector2(left, _result_buttons_y()), Vector2(RESULT_MENU_W, 136.0))
+
+
+func _result_buttons_y() -> float:
 	var top := (size.y - 1600.0) * 0.5
-	var below := minf(_result_top() + RESULT_PANEL_Y + result_panel_height() + 44.0, top + 1600.0 - 136.0 - 80.0)
-	return Rect2(Vector2(size.x * 0.5 - 290.0, below), Vector2(580.0, 136.0))
+	return minf(_result_top() + RESULT_PANEL_Y + result_panel_height() + 44.0, top + 1600.0 - 136.0 - 80.0)
 
 
 # Top of the result block (ribbon), centred vertically on the 1600 base.
@@ -161,7 +179,7 @@ func _draw_top(c: CanvasItem) -> void:
 	Kit.pill(c, clock, "dark")
 	Kit.number(c, clock.get_center() + Vector2(0, 2), RUN.clock(battle.run.elapsed), UiStyle.T_HEAD, Color.WHITE, Kit.CENTER | Kit.MIDDLE)
 	# Kills.
-	var kills := Rect2(size.x - 20.0 - 196.0, 26, 196, 76)
+	var kills := Rect2(size.x - 20.0 - PAUSE_SLOT - 196.0, 26, 196, 76)
 	Kit.pill(c, kills, "dark")
 	_skull(c, Vector2(kills.position.x + 44.0, kills.get_center().y), 20.0)
 	Kit.number(c, Vector2(kills.end.x - 26.0, kills.get_center().y + 2.0), battle.run.kills, UiStyle.T_HEAD, Color.WHITE, Kit.RIGHT | Kit.MIDDLE)
@@ -403,13 +421,30 @@ func _draw_result(c: CanvasItem) -> void:
 		Kit.text_outlined(c, Vector2(row.position.x + 4.0, row.get_center().y), source, UiStyle.T_BODY, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE, 220.0)
 		Kit.bar(c, Rect2(Vector2(row.position.x + 236.0, row.position.y + 8.0), Vector2(row.size.x - 236.0 - 150.0, 30.0)), amount / best, "ember")
 		Kit.number(c, Vector2(row.end.x - 4.0, row.get_center().y + 1.0), Kit.format_int(int(amount)), UiStyle.T_HEAD, Color.WHITE, Kit.RIGHT | Kit.MIDDLE, 140.0)
+	var menu := result_menu_rect()
+	menu.position.y += rise
+	Kit.button(c, menu, "neutral")
+	var menu_mid := Kit.button_label_center(menu)
+	_home_glyph(c, Vector2(menu.position.x + 52.0, menu_mid.y + 2.0), 19.0)
+	Kit.text_outlined(c, Vector2(menu.position.x + 160.0, menu_mid.y), "MENÜ", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, menu.size.x - 110.0)
 	var button := result_button_rect()
 	button.position.y += rise
 	var pulse := 1.0 + 0.03 * sin(_clock * 5.0)
 	var shown := Rect2(button.get_center() - button.size * pulse * 0.5, button.size * pulse)
 	Kit.button(c, shown, "action")
-	Kit.text_outlined(c, Kit.button_label_center(shown), "NOCHMAL", UiStyle.T_TITLE, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE)
-	Kit.paragraph(c, Vector2(cx - 300.0, button.end.y + 26.0), "Tippen · Enter · R", 600.0, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, false, Kit.CENTER, 1)
+	Kit.text_outlined(c, Kit.button_label_center(shown), "NOCHMAL", UiStyle.T_TITLE, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, shown.size.x - 40.0)
+	Kit.paragraph(c, Vector2(cx - 340.0, button.end.y + 26.0), "Enter · R: nochmal   ·   M · Esc: Menü", 680.0, UiStyle.T_LABEL, UiStyle.BRAWL_TEXT_DIM, false, Kit.CENTER, 1)
+
+
+# House glyph for the MENÜ button (roof, body, door).
+func _home_glyph(c: CanvasItem, center: Vector2, r: float) -> void:
+	var roof := PackedVector2Array([center + Vector2(-r * 1.25, -r * 0.1), center + Vector2(0, -r * 1.2), center + Vector2(r * 1.25, -r * 0.1)])
+	var body := Rect2(center + Vector2(-r * 0.85, -r * 0.25), Vector2(r * 1.7, r * 1.25))
+	Kit.rrect(c, body.grow(4.0), 6.0, UiStyle.BRAWL_INK)
+	c.draw_polyline(roof, UiStyle.BRAWL_INK, 15.0, true)
+	Kit.rrect(c, body, 4.0, Color.WHITE)
+	c.draw_polyline(roof, Color.WHITE, 7.0, true)
+	Kit.rrect(c, Rect2(center + Vector2(-r * 0.28, r * 0.35), Vector2(r * 0.56, r * 0.65)), 3.0, UiStyle.brawl_tone("neutral")["dark"])
 
 
 # Section heading with a thin rule to the right.

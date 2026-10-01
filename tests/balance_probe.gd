@@ -12,7 +12,7 @@ extends SceneTree
 #             nothing is close
 #   add "noup" to skip every level-up / cocoon choice (no upgrades),
 #   "seed=N" for another director/pressure seed, "limit=S" for the time limit
-#   (default 360 s; smart 600 s).
+#   (default 360 s; smart 600 s), "hero=boxer" for Rocco (stage 3).
 # Prints survival time, kills, hits, pressure events.
 # Godot --headless --audio-driver Dummy --script res://tests/balance_probe.gd -- smart noup
 
@@ -42,17 +42,23 @@ func _run() -> void:
 	var upgrades := true
 	var seed_value := 0
 	var limit := -1.0
+	var hero_id := ""
 	for arg in OS.get_cmdline_user_args():
 		if arg == "noup":
 			upgrades = false
 		elif arg.begins_with("seed="):
 			seed_value = int(arg.substr(5))
+		elif arg.begins_with("hero="):
+			hero_id = arg.substr(5)
 		elif arg.begins_with("limit="):
 			limit = float(arg.substr(6))
 		elif arg != "verbose":
 			mode = arg
 	if limit < 0.0:
 		limit = 600.0 if mode == "smart" else 360.0
+	# Stage 3: "hero=boxer" / "hero=brann" (a fresh run of that hero).
+	if hero_id != "":
+		battle.set_hero(hero_id)
 	if seed_value != 0:
 		battle.director.reset(seed_value)
 		battle.pressure._rng.seed = seed_value
@@ -145,6 +151,7 @@ func _run() -> void:
 	print("PRESSURE waves %s elites %d killed %d boss %s" % [waves, pressure.events_of("elite").size(), pressure.events_of("elite_killed").size(), boss])
 	print("hits per minute %s, by damage %s" % [str(hits_by_minute), str(by_damage)])
 	print("LEVELS reached at s: %s" % str(levels))
+	print("HERO %s weapons %s" % [hero.hero_id, str(battle.progress.weapons)])
 	print("BOT %s%s survived %.1f s kills %d max_alive %d hits %d dmg %.0f" % [mode, "" if upgrades else " noup", battle.run.elapsed, battle.run.kills, max_alive, hero.hits_taken, hero.damage_taken])
 	quit()
 

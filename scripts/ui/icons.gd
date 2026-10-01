@@ -4,7 +4,8 @@ extends RefCounted
 # look: flat fill, thick ink outline). Icons.draw(canvas, id, center, size)
 # draws into a square of `size` px around `center`. Ids: burst, clock, aim,
 # boot, heart, regen, shield, magnet, crit, gem, clover, shotgun, shells, horn,
-# flask, thorns, coin, trophy, belt, amulet (unknown ids draw a star).
+# flask, thorns, coin, trophy, belt, amulet, fists, axe, sword, grenade
+# (unknown ids draw a star).
 
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
@@ -68,6 +69,15 @@ static func draw(c: CanvasItem, id: String, center: Vector2, size: float) -> voi
 			_line(c, center + Vector2(4, 14) * s, center + Vector2(14, 44) * s, 8.0 * s, Color("2f9a3a"))
 		"shotgun":
 			_shotgun(c, center, s)
+		"fists":
+			_fist(c, center + Vector2(-12, 6) * s, s * 0.85, true)
+			_fist(c, center + Vector2(16, -8) * s, s, false)
+		"axe":
+			_axe(c, center, s)
+		"sword":
+			_sword(c, center, s)
+		"grenade":
+			_grenade(c, center, s)
 		"shells":
 			for k in 3:
 				_shell(c, center + Vector2(-24 + 24 * k, 4) * s, s)
@@ -192,6 +202,44 @@ static func _shotgun(c: CanvasItem, center: Vector2, s: float) -> void:
 	var stock := _pts(center, s, [[0, -4], [50, -6], [52, 24], [30, 22], [14, 6], [0, 6]])
 	_poly(c, stock, WOOD, 6.0 * s)
 	_poly(c, _pts(center, s, [[-6, 2], [6, 2], [8, 18], [-2, 18]]), Color("6b3a1c"), 4.0 * s)
+
+
+# Bandaged fist seen from the front: a rounded block, four knuckles, thumb.
+static func _fist(c: CanvasItem, center: Vector2, s: float, back: bool) -> void:
+	var tint := Color("e6d6b4") if back else Color("f6ecd6")
+	_poly(c, _pts(center, s, [[-30, -22], [30, -22], [34, 20], [24, 34], [-24, 34], [-34, 20]]), tint, 6.0 * s)
+	for k in 4:
+		var x := -21.0 + 14.0 * k
+		Kit.disc(c, center + Vector2(x, -22) * s, 9.0 * s, INK)
+		Kit.disc(c, center + Vector2(x, -22) * s, 6.5 * s, tint)
+	_poly(c, _pts(center, s, [[-30, 2], [4, 2], [4, 14], [-30, 14]]), Color("d9884f"), 4.0 * s)
+	c.draw_line(center + Vector2(-26, 22) * s, center + Vector2(26, 26) * s, Color("c9b48c"), 4.0 * s, true)
+
+
+static func _axe(c: CanvasItem, center: Vector2, s: float) -> void:
+	_poly(c, _pts(center, s, [[-34, 40], [-26, 46], [22, -14], [14, -20]]), WOOD, 6.0 * s)
+	var blade := _pts(center, s, [[4, -30], [26, -48], [46, -24], [40, 6], [20, -4]])
+	_poly(c, blade, STEEL, 7.0 * s)
+	c.draw_line(center + Vector2(28, -44) * s, center + Vector2(42, -22) * s, WHITE, 5.0 * s, true)
+
+
+static func _sword(c: CanvasItem, center: Vector2, s: float) -> void:
+	# Swirl behind the blade.
+	Kit.circle_ring(c, center, 40.0 * s, 6.0 * s, Color(SKY, 0.8))
+	_poly(c, _pts(center, s, [[-6, 22], [6, 22], [6, -38], [0, -50], [-6, -38]]), STEEL, 6.0 * s)
+	c.draw_line(center + Vector2(0, -40) * s, center + Vector2(0, 16) * s, WHITE, 3.0 * s, true)
+	_poly(c, _pts(center, s, [[-22, 20], [22, 20], [22, 28], [-22, 28]]), GOLD, 5.0 * s)
+	_poly(c, _pts(center, s, [[-5, 28], [5, 28], [5, 46], [-5, 46]]), Color("5a3420"), 4.0 * s)
+
+
+static func _grenade(c: CanvasItem, center: Vector2, s: float) -> void:
+	_disc(c, center + Vector2(0, 8) * s, 32.0 * s, Color("4f7a34"))
+	c.draw_line(center + Vector2(-28, 8) * s, center + Vector2(28, 8) * s, Color("2f4a20"), 4.0 * s, true)
+	c.draw_line(center + Vector2(0, -22) * s, center + Vector2(0, 38) * s, Color("2f4a20"), 4.0 * s, true)
+	_poly(c, _pts(center, s, [[-10, -34], [10, -34], [10, -22], [-10, -22]]), STEEL, 5.0 * s)
+	Kit.circle_ring(c, center + Vector2(18, -34) * s, 9.0 * s, 4.0 * s, INK)
+	_star(c, center + Vector2(-4, -46) * s, 14.0 * s, 6.0 * s, 6, Color("ffd24a"))
+	Kit.disc(c, center + Vector2(-12, -2) * s, 7.0 * s, Color(1, 1, 1, 0.45))
 
 
 static func _shell(c: CanvasItem, center: Vector2, s: float) -> void:

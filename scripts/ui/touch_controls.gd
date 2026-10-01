@@ -4,10 +4,12 @@ extends Control
 # right (a touch in the right movement zone puts the stick origin under the
 # thumb), dash button on the left (brawl style), keyboard WASD/arrows + Space.
 # On the result screen a tap on NOCHMAL (rect from hud.gd) or R/Enter/Space
-# restarts. Draws the joystick and the dash button itself.
+# restarts; MENÜ (tap, M, Esc) asks for the menu (main.gd switches scenes). Draws the joystick and the dash button itself.
 
 signal dash_requested
 signal restart_requested
+## Stage 3: MENÜ on the result screen (tap, M or Esc).
+signal menu_requested
 
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
@@ -33,6 +35,7 @@ var _key := []
 var dash_charge := 0.0           # 0 = ready, 1 = just used
 var dead := false
 var result_button := Rect2()     # NOCHMAL hit area while the result shows
+var result_menu_button := Rect2()  # MENÜ hit area next to it
 var show_result := false
 ## A choice screen is open (level-up, cocoon): no stick, no dash.
 var blocked := false
@@ -86,6 +89,8 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if dead and show_result and event.keycode in [KEY_R, KEY_ENTER, KEY_SPACE, KEY_KP_ENTER]:
 			restart_requested.emit()
+		elif dead and show_result and event.keycode in [KEY_M, KEY_ESCAPE]:
+			menu_requested.emit()
 		elif not dead and not blocked and event.keycode in [KEY_SPACE, KEY_SHIFT]:
 			request_dash()
 		return
@@ -109,6 +114,8 @@ func _press(pointer: int, location: Vector2) -> void:
 	if dead:
 		if show_result and result_button.grow(12.0).has_point(location):
 			restart_requested.emit()
+		elif show_result and result_menu_button.size.x > 0.0 and result_menu_button.grow(12.0).has_point(location):
+			menu_requested.emit()
 		return
 	if blocked:
 		return

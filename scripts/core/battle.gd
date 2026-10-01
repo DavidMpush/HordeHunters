@@ -13,6 +13,7 @@ extends Node
 
 signal run_restarted
 signal run_ended
+signal pause_changed(on: bool)
 
 const T := preload("res://scripts/core/tuning.gd")
 const HERO := preload("res://scripts/hero/hero.gd")
@@ -27,6 +28,15 @@ const CONTROLS := preload("res://scripts/ui/touch_controls.gd")
 const HUD := preload("res://scripts/ui/hud.gd")
 const PROGRESSION := preload("res://scripts/progression/progression.gd")
 const PRESSURE := preload("res://scripts/enemies/pressure.gd")
+const HEROES := preload("res://scripts/hero/heroes.gd")
+## Stage 3 Teil B: weapon scripts by catalogue id (progress.gd WEAPONS).
+const WEAPON_SCRIPTS := {
+	"shotgun": SHOTGUN,
+	"fists": preload("res://scripts/weapons/fists.gd"),
+	"axe": preload("res://scripts/weapons/throwing_axe.gd"),
+	"sword": preload("res://scripts/weapons/sword_whirl.gd"),
+	"grenade": preload("res://scripts/weapons/grenade.gd"),
+}
 
 ## false: nothing steps by itself (tests drive tick()).
 var auto := true
@@ -36,7 +46,13 @@ var max_delta := 1.0 / 20.0
 
 var hero: Node3D
 var arena: Node3D
+## The hero's own weapon (legacy name: Brann's shotgun, Rocco's fists).
 var shotgun: Node
+## Stage 3 Teil B: all weapons of the run (own weapon first), stepped in order;
+## they follow progress.weapons (NEUE WAFFE adds one, restart drops extras).
+var weapons: Array[Node] = []
+## Frames the fight stands still for a hit stop (uppercut).
+var hitstop_frames := 0
 var horde: Node3D
 var director: RefCounted
 var effects: Node3D
@@ -54,6 +70,8 @@ var chests: Node3D
 var progress: RefCounted
 ## Stage 2 Teil B: waves, encircle rings, champions, boss, Endwelle (pressure.gd).
 var pressure: Node
+## Stage 3: the run is paused by the player (see set_paused()).
+var user_paused := false
 var _ended := false
 
 
@@ -78,12 +96,9 @@ func _ready() -> void:
 	host.add_child.call_deferred(horde)
 	hero.effects = effects
 	horde.setup(arena, hero, effects)
-	shotgun = SHOTGUN.new()
-	shotgun.name = "Shotgun"
-	shotgun.hero = hero
-	shotgun.horde = horde
-	shotgun.effects = effects
-	add_child(shotgun)
+	if String(hero.get("hero_id")) == "":
+		hero.apply_hero(HEROES.current_id())
+	shotgun = _make_weapon(String(HEROES.get_hero(hero.hero_id).weapon))
 	director = DIRECTOR.new()
 	director.horde = horde
 	director.arena = arena
@@ -110,6 +125,11 @@ func _ready() -> void:
 	loot = progression.loot
 	chests = progression.chests
 	progress = progression.progress
+	progress.set_start_weapon(String(shotgun.id))
+	for weapon in weapons:
+		weapon.run = run
+		weapon.shake = shake
+		weapon.sfx = sfx
 	pressure = PRESSURE.new()
 	pressure.name = "Pressure"
 	add_child(pressure)
@@ -123,10 +143,7 @@ func _connect() -> void:
 	hero.hurt.connect(_on_hero_hurt)
 	hero.died.connect(_on_hero_died)
 	hero.dashed.connect(func(_dir: Vector3) -> void: sfx.play("dash"))
-	shotgun.fired.connect(_on_fired)
-	shotgun.reload_started.connect(func() -> void: sfx.play("open"))
-	shotgun.shells_ejected.connect(func() -> void: sfx.play("shell"))
-	shotgun.reload_finished.connect(func() -> void: sfx.play("close"))
+	_connect_own_weapon()
 	horde.enemy_killed.connect(_on_enemy_killed)
 	horde.enemy_damaged.connect(_on_enemy_damaged)
 	horde.windup_started.connect(_on_windup)
@@ -147,12 +164,19 @@ func tick(delta: float) -> void:
 	controls.blocked = paused()
 	if paused():
 		return
+	# Hit stop (uppercut): the fight freezes for a few frames.
+	if hitstop_frames > 0:
+		hitstop_frames -= 1
+		return
 	var move: Vector2 = controls.move_vector() if not run.dead else Vector2.ZERO
 	hero.step(delta, move)
 	# Main (world scene) syncs the arena itself after its children.
 	if arena != null and arena.has_method("sync") and not get_parent().has_method("start_world"):
 		arena.sync(hero.position)
-	shotgun.step(delta)
+	if weapons.size() != progress.weapons.size():
+		sync_weapons()
+	for weapon in weapons:
+		weapon.step(delta)
 	horde.step(delta)
 	var running := Vector3(hero.velocity.x, 0.0, hero.velocity.z)
 	director.heading = running.normalized() if running.length() > 1.5 else Vector3.ZERO
@@ -166,6 +190,7 @@ func tick(delta: float) -> void:
 	controls.dead = run.dead
 	controls.show_result = hud.result_visible()
 	controls.result_button = hud.result_button_rect()
+	controls.result_menu_button = hud.result_menu_rect()
 
 
 ## New run on the same map: hero back to the start, enemies and effects gone.
@@ -178,7 +203,6 @@ func restart() -> void:
 	elif arena != null and arena.has_method("map_center"):
 		start = arena.map_center()
 	hero.reset(start)
-	shotgun.reset()
 	horde.clear()
 	effects.clear()
 	hud.clear()
@@ -188,6 +212,11 @@ func restart() -> void:
 	run.reset()
 	run.runs += 1
 	progression.reset()
+	sync_weapons()
+	for weapon in weapons:
+		weapon.reset()
+	hitstop_frames = 0
+	set_paused(false)
 	_ended = false
 	controls.clear_pointers()
 	controls.dead = false
@@ -199,6 +228,75 @@ func restart() -> void:
 		host.snap_camera()
 	sfx.play("ui")
 	run_restarted.emit()
+
+
+# ---------------------------------------------------------------- weapons (stage 3 Teil B)
+
+## Switches the hero (catalogue id) and starts a new run with his weapon.
+func set_hero(id: String) -> void:
+	hero.apply_hero(id)
+	for weapon in weapons:
+		weapon.queue_free()
+		remove_child(weapon)
+	weapons.clear()
+	shotgun = _make_weapon(String(HEROES.get_hero(hero.hero_id).weapon))
+	_connect_own_weapon()
+	progress.set_start_weapon(String(shotgun.id))
+	restart()
+
+
+## Weapon nodes follow progress.weapons: missing ones are created (NEUE
+## WAFFE), dropped ones (new run) freed. The own weapon stays.
+func sync_weapons() -> void:
+	var wanted: Array = progress.weapons if progress != null else []
+	for index in range(weapons.size() - 1, -1, -1):
+		var weapon := weapons[index]
+		if weapon != shotgun and not wanted.has(String(weapon.id)):
+			weapons.remove_at(index)
+			remove_child(weapon)
+			weapon.queue_free()
+	for id in wanted:
+		if not _has_weapon(String(id)) and WEAPON_SCRIPTS.has(String(id)):
+			_make_weapon(String(id))
+
+
+func weapon_of(id: String) -> Node:
+	for weapon in weapons:
+		if String(weapon.id) == id:
+			return weapon
+	return null
+
+
+func _has_weapon(id: String) -> bool:
+	return weapon_of(id) != null
+
+
+func _make_weapon(id: String) -> Node:
+	var script: GDScript = WEAPON_SCRIPTS.get(id, SHOTGUN)
+	var weapon: Node = script.new()
+	weapon.name = id.capitalize() if id != "shotgun" else "Shotgun"
+	weapon.hero = hero
+	weapon.horde = horde
+	weapon.effects = effects
+	weapon.run = run
+	weapon.shake = shake
+	weapon.sfx = sfx
+	add_child(weapon)
+	weapons.append(weapon)
+	weapon.hitstop_requested.connect(_on_hitstop)
+	return weapon
+
+
+func _connect_own_weapon() -> void:
+	if shotgun.has_signal("fired"):
+		shotgun.fired.connect(_on_fired)
+		shotgun.reload_started.connect(func() -> void: sfx.play("open"))
+		shotgun.shells_ejected.connect(func() -> void: sfx.play("shell"))
+		shotgun.reload_finished.connect(func() -> void: sfx.play("close"))
+
+
+func _on_hitstop(frames: int) -> void:
+	hitstop_frames = maxi(hitstop_frames, frames)
 
 
 # ---------------------------------------------------------------- drops (stage 2 Teil A)
@@ -217,9 +315,21 @@ func drop_chest(at: Vector3, kind: String = "free") -> void:
 	progression.drop_chest(at, kind)
 
 
-## True while the level-up / cocoon choice is open (nothing steps).
+## True while the run stands still: the pause menu / focus loss
+## (set_paused) or the level-up / cocoon choice. tick() steps nothing then.
 func paused() -> bool:
-	return progression != null and progression.paused()
+	return user_paused or (progression != null and progression.paused())
+
+
+## Stage 3 Teil A: pause of the run (pause button, Esc/P, focus loss); the
+## same gate in tick() as the level-up choice. restart() clears it.
+func set_paused(on: bool) -> void:
+	if user_paused == on:
+		return
+	user_paused = on
+	if controls != null:
+		controls.clear_pointers()
+	pause_changed.emit(on)
 
 
 # ---------------------------------------------------------------- events

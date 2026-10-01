@@ -1,4 +1,4 @@
-extends Node
+extends "res://scripts/weapons/weapon.gd"
 
 # Brann's double-barrelled shotgun (stage 1 spec, Teil B §3):
 # - auto-aim on the nearest enemy within GUN_RANGE (8 m)
@@ -13,17 +13,13 @@ extends Node
 # fire_rate_mult (shot gap), reload_mult, range_mult (aim, reach, falloff),
 # fan_mult, pellets_bonus, pierce (a pellet goes on through that many more
 # bodies), knockback_mult, mag_bonus, crit (chance of double pellet damage).
+# Stage 3 (Teil B §1): built on weapon.gd (hero/horde/effects, _stat, damage
+# booked on "Schrotflinte"); behaviour unchanged.
 
 signal fired(direction: Vector3, pellets_hit: int, kills: int)
 signal reload_started
 signal shells_ejected
 signal reload_finished
-
-const T := preload("res://scripts/core/tuning.gd")
-
-var hero: Node3D
-var horde: Node3D
-var effects: Node3D
 
 var shells := T.GUN_SHELLS
 var gap := 0.0
@@ -34,20 +30,15 @@ var target := -1
 var shots := 0
 var reloads := 0
 var _ejected := false
-var _rng := RandomNumberGenerator.new()
 ## Last shot (tests): [{"from", "to", "index", "damage"}] per pellet.
 var last_pellets: Array[Dictionary] = []
 var last_hits: Dictionary = {}
 
 
 func _init() -> void:
-	_rng.seed = 1234
-
-
-func _stat(id: String) -> float:
-	if hero != null and hero.has_method("stat"):
-		return hero.stat(id)
-	return 1.0 if id.ends_with("_mult") else 0.0
+	super()
+	id = "shotgun"
+	source = "Schrotflinte"
 
 
 func max_shells() -> int:
@@ -67,6 +58,7 @@ func pellet_count() -> int:
 
 
 func reset() -> void:
+	super()
 	shells = max_shells()
 	gap = 0.0
 	reload_left = 0.0
@@ -216,14 +208,14 @@ func fire(direction: Vector3) -> int:
 		if effects != null and is_instance_valid(effects):
 			effects.tracer(muzzle, end + Vector3.UP * (0.45 if first >= 0 else 0.6))
 	last_hits = hits.duplicate(true)
-	var kills: int = horde.apply_hits(hits)
+	var killed := apply(hits)
 	if model != null:
 		model.recoil = 1.0
 	if effects != null and is_instance_valid(effects):
 		effects.muzzle_flash(muzzle, dir)
 		effects.blast(origin + dir * 0.4, dir, reach - 0.4, fan * 0.5)
-	fired.emit(dir, pellets_hit, kills)
-	return kills
+	fired.emit(dir, pellets_hit, killed)
+	return killed
 
 
 func _eject() -> void:

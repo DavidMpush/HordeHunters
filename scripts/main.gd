@@ -11,6 +11,8 @@ extends Node3D
 
 const BIOMES = preload("res://scripts/world/biomes.gd")
 const QUALITY = preload("res://scripts/world/quality.gd")
+const SESSION := preload("res://scripts/core/session.gd")
+const PAUSE := preload("res://scripts/ui/pause_screen.gd")
 const CAMERA_OFFSET := Vector3(0.0, 23.0, 15.0)
 # Camera follow sharpness (1/s, exponential smoothing like Mawlings).
 const CAMERA_FOLLOW := 5.0
@@ -34,8 +36,34 @@ var _camera_base := Vector3.ZERO
 func _ready() -> void:
 	process_priority = 100
 	QUALITY.apply_viewport(get_viewport(), QUALITY.settings())
+	# Stage 3: run configuration from the menu (Session.config), settings.
+	SESSION.apply_settings()
+	world_seed = SESSION.world_seed(world_seed)
+	biome_id = SESSION.biome(biome_id)
 	arena.chunk_budget = 1
 	start_world(world_seed, biome_id)
+	_wire_session()
+
+
+# Stage 3 Teil A: pause screen on top of the HUD, MENÜ (pause / result) back
+# to the title, finished runs into the profile, vibration on hits.
+func _wire_session() -> void:
+	var battle := get_node_or_null("Battle")
+	if battle == null or battle.get("hud_layer") == null:
+		return
+	var pause: Control = PAUSE.new()
+	pause.name = "Pause"
+	pause.battle = battle
+	battle.hud_layer.add_child(pause)
+	pause.menu_requested.connect(go_to_menu)
+	battle.controls.menu_requested.connect(go_to_menu)
+	battle.run_ended.connect(func() -> void: SESSION.record_run(battle.run))
+	battle.hero.hurt.connect(func(damage: float, _from: Vector3) -> void: SESSION.vibrate(clampi(int(25.0 + damage * 2.0), 25, 90)))
+
+
+## Back to the title screen (scenes/menu.tscn).
+func go_to_menu() -> void:
+	SESSION.to_menu(get_tree())
 
 
 ## (Re)builds the map for `seed_value` in biome `id`, puts the hero on the start

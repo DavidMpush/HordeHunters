@@ -1,9 +1,13 @@
 extends Node3D
 
-# Hero Brann: movement (stick/WASD), dash, health with short invulnerability
-# after a hit, death. Carries the placeholder model (brann_model.gd) and the
-# shotgun (scripts/weapons/shotgun.gd), which battle.gd wires up. Everything
-# runs in step(), called by battle.gd (tests call it directly).
+# The hero: movement (stick/WASD), dash, health with short invulnerability
+# after a hit, death. Carries the placeholder model; the weapons
+# (scripts/weapons/*) are wired up by battle.gd. Everything runs in step(),
+# called by battle.gd (tests call it directly).
+# Stage 3: which hero (Brann, Rocco the boxer) comes from the catalogue
+# scripts/hero/heroes.gd: apply_hero(id) sets name, base health, base armor,
+# speed and builds the model; _ready() takes the menu's choice
+# (heroes.current_id(), default Brann) unless hero_id was set before.
 
 signal hurt(damage: float, from: Vector3)
 signal died
@@ -12,12 +16,19 @@ signal dashed(direction: Vector3)
 const T := preload("res://scripts/core/tuning.gd")
 const MODEL := preload("res://scripts/hero/brann_model.gd")
 const BUILD := preload("res://scripts/progression/progress.gd")
+const HEROES := preload("res://scripts/hero/heroes.gd")
+## Base armor plus the build's armor never goes above this.
+const ARMOR_CAP := 0.7
 
 var arena: Node3D
 var model: Node3D
 var effects: Node3D
 ## Stage 2: the run's build (scripts/progression/progress.gd); null = base values.
 var build: RefCounted
+## Stage 3: catalogue id ("brann", "boxer"), base health and armor share.
+var hero_id := ""
+var base_health := T.HERO_HP
+var base_armor := 0.0
 
 var max_health := T.HERO_HP
 var health := T.HERO_HP
@@ -40,9 +51,26 @@ var aim_yaw := NAN
 
 func _ready() -> void:
 	if model == null:
-		model = MODEL.new()
-		model.name = "Brann"
-		add_child(model)
+		apply_hero(hero_id if HEROES.has(hero_id) else HEROES.current_id())
+
+
+## Becomes hero `id` of the catalogue: numbers and a fresh model. Health is
+## filled up; the run's build is kept (progression re-applies Max-LP).
+func apply_hero(id: String) -> void:
+	hero_id = id if HEROES.has(id) else HEROES.DEFAULT
+	var data: Dictionary = HEROES.get_hero(hero_id)
+	base_health = float(data.get("hp", T.HERO_HP))
+	base_armor = float(data.get("armor", 0.0))
+	speed = float(data.get("speed", T.HERO_SPEED))
+	max_health = base_health
+	health = max_health
+	if model != null and is_instance_valid(model):
+		remove_child(model)
+		model.queue_free()
+	var script: Variant = load(String(data.get("model_script", ""))) if ResourceLoader.exists(String(data.get("model_script", ""))) else null
+	model = (script as GDScript).new() if script is GDScript else MODEL.new()
+	model.name = String(data.get("name", "Brann"))
+	add_child(model)
 
 
 func reset(at: Vector3) -> void:
@@ -70,6 +98,11 @@ func stat(id: String) -> float:
 	if build != null:
 		return build.stat(id)
 	return BUILD.default_stat(id)
+
+
+## Share of an enemy hit that is absorbed (hero base + build, capped).
+func armor() -> float:
+	return minf(ARMOR_CAP, base_armor + stat("armor"))
 
 
 func move_speed() -> float:
@@ -124,7 +157,7 @@ func dash(direction: Vector3 = Vector3.ZERO) -> bool:
 func take_hit(damage: float, from: Vector3) -> bool:
 	if not can_be_hit():
 		return false
-	damage *= 1.0 - stat("armor")
+	damage *= 1.0 - armor()
 	health = maxf(0.0, health - damage)
 	damage_taken += damage
 	hits_taken += 1

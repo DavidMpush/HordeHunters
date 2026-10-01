@@ -213,7 +213,8 @@ func _on_burst(entry: Dictionary) -> void:
 # when the maximum grows (a Max-LP pick heals by its gain).
 func _apply_hero_stats(keep_missing: bool) -> void:
 	var hero: Node3D = battle.hero
-	var wanted: float = T.HERO_HP + progress.stat("max_hp_bonus")
+	var base: Variant = hero.get("base_health")
+	var wanted: float = (float(base) if base != null else T.HERO_HP) + progress.stat("max_hp_bonus")
 	var gain: float = wanted - float(hero.max_health)
 	hero.max_health = wanted
 	if keep_missing and gain > 0.0:

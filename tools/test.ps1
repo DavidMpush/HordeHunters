@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = 'Continue'
 $godotExe = 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe'
 $projectDir = Split-Path -Parent $PSScriptRoot
-$tests = @('world', 'dash', 'shotgun', 'enemy_melee', 'director', 'death_restart', 'xp_level', 'upgrades', 'chests', 'result', 'waves', 'encircle', 'elite', 'boss', 'endwave')
+$tests = @('world', 'dash', 'shotgun', 'enemy_melee', 'director', 'death_restart', 'xp_level', 'upgrades', 'chests', 'result', 'waves', 'encircle', 'elite', 'boss', 'endwave', 'profile', 'menu', 'pause', 'weapon_base', 'fists', 'new_weapons', 'boxer_run')
 $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 if ($Only.Count -gt 0) { $tests = $tests | Where-Object { $Only -contains $_ } }
 
