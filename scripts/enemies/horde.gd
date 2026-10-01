@@ -12,16 +12,30 @@ extends Node3D
 # enemies are flung as corpses (same MultiMesh) and leave a splat.
 #
 # Reach is measured from the enemy centre to the hero's body edge.
+#
+# Stage 2 (Teil B, Druck):
+#   - champion Brocken (elite flag): bigger, gold shimmer, more health, a
+#     telegraphed stomp ring instead of the forward swing; elite_killed on death
+#   - encircle ring: members flagged `_ring` walk to their slot on a shrinking
+#     ring (ring_center / ring_radius, driven by pressure.gd) until it dissolves
+#   - boss slot: an external big target (boss_king.gd) joins the shotgun queries
+#     (nearest_index, raycast, position_of, apply_hits) under BOSS_SLOT; it takes
+#     damage but never knockback.
 
 signal enemy_killed(kind: int, at: Vector3)
 signal enemy_damaged(at: Vector3, amount: float, kind: int, killed: bool)
 signal windup_started(kind: int, at: Vector3)
 ## Every strike, hit or not (at = strike point).
 signal swing_landed(kind: int, at: Vector3, hit: bool)
+## A champion Brocken died (after enemy_killed).
+signal elite_killed(at: Vector3)
 
 const T := preload("res://scripts/core/tuning.gd")
+const PT := preload("res://scripts/enemies/pressure_tuning.gd")
 const ENEMY_SHADER := preload("res://shaders/enemy.gdshader")
 const ARC_SHADER := preload("res://shaders/telegraph_arc.gdshader")
+## Index the boss answers to in the shotgun queries (never a living slot).
+const BOSS_SLOT := T.ENEMY_CAP + 1
 
 enum State { APPROACH, WINDUP, STRIKE, RECOVER, STAGGER }
 
@@ -81,6 +95,10 @@ var _walk := PackedFloat32Array()
 var _flash := PackedFloat32Array()
 var _appear := PackedFloat32Array()
 var _near := PackedByteArray()
+var _elite := PackedByteArray()
+var _hp_max := PackedFloat32Array()
+var _ring := PackedByteArray()
+var _ring_angle := PackedFloat32Array()
 var _next := PackedInt32Array()
 var _head := PackedInt32Array()
 var _anchor := Vector3.ZERO
@@ -110,6 +128,18 @@ var usec_step := 0
 var usec_draw := 0
 ## Bench switch: no wall collision (measures its cost).
 var walls_enabled := true
+
+# Encircle ring (pressure.gd drives centre and radius; members keep formation
+# while ring_active, then chase normally).
+var ring_active := false
+var ring_center := Vector3.ZERO
+var ring_radius := 0.0
+## Gap direction (rad, xz: cos, sin) and width (m, kept while closing).
+var ring_gap := 0.0
+var ring_gap_width := 4.0
+## External boss target (boss_king.gd) or null.
+var boss: Node3D
+var _elite_arcs: Array[MeshInstance3D] = []
 
 # Drawing
 var _built := false
@@ -145,10 +175,52 @@ func count_kind(kind: int) -> int:
 
 
 func position_of(i: int) -> Vector3:
+	if i == BOSS_SLOT:
+		return _boss_position()
 	return _pos[i]
 
 
+func is_elite(i: int) -> bool:
+	return _elite[i] == 1
+
+
+func max_health_of(i: int) -> float:
+	return _hp_max[i]
+
+
+func speed_of(i: int) -> float:
+	return _speed[i]
+
+
+func in_ring(i: int) -> bool:
+	return _ring[i] == 1
+
+
+func count_elite() -> int:
+	var total := 0
+	for i in _n:
+		total += _elite[i]
+	return total
+
+
+func count_ring() -> int:
+	var total := 0
+	for i in _n:
+		total += _ring[i]
+	return total
+
+
+## Ring members leave the formation (they chase normally from now on).
+func release_ring() -> void:
+	ring_active = false
+	for i in _n:
+		_ring[i] = 0
+
+
 func kind_of(i: int) -> int:
+	# The boss counts as heavy (Brocken): no knockback, big body.
+	if i == BOSS_SLOT:
+		return T.Kind.BROCKEN
 	return _kind[i]
 
 
@@ -176,22 +248,30 @@ func positions() -> PackedVector3Array:
 	return _pos.slice(0, _n)
 
 
-func spawn(kind: int, at: Vector3) -> int:
+## elite: champion Brocken (only for the Brocken kind). hp_mult / speed_mult
+## scale this one enemy (Endwelle).
+func spawn(kind: int, at: Vector3, elite := false, hp_mult := 1.0, speed_mult := 1.0) -> int:
 	if _n >= CAP:
 		return -1
 	var i := _n
 	_n += 1
 	var stats: Dictionary = T.enemy(kind)
+	elite = elite and kind == T.Kind.BROCKEN
 	_kind[i] = kind
+	_elite[i] = 1 if elite else 0
+	_ring[i] = 0
+	_ring_angle[i] = 0.0
 	_pos[i] = Vector3(at.x, 0.0, at.z)
 	_vel[i] = Vector3.ZERO
 	_knock[i] = Vector3.ZERO
 	_push[i] = Vector3.ZERO
 	_flow[i] = Vector3.ZERO
 	_dir[i] = Vector3.FORWARD
-	_hp[i] = float(stats.hp)
+	_hp[i] = float(stats.hp) * hp_mult * (PT.ELITE_HP_MULT if elite else 1.0)
+	_hp_max[i] = _hp[i]
 	# A little speed variety so packs string out instead of marching in step.
-	_speed[i] = float(stats.speed) * (0.92 + 0.16 * fposmod(float(total_kills + i) * 0.618034 + float(_frame) * 0.1, 1.0))
+	var base_speed: float = PT.ELITE_SPEED if elite else float(stats.speed)
+	_speed[i] = base_speed * speed_mult * (0.92 + 0.16 * fposmod(float(total_kills + i) * 0.618034 + float(_frame) * 0.1, 1.0))
 	_state[i] = State.APPROACH
 	_timer[i] = 0.0
 	var to_hero := _hero_position() - at
@@ -204,6 +284,23 @@ func spawn(kind: int, at: Vector3) -> int:
 	return i
 
 
+## Ring member at slot `share` (0..1 from one gap edge round to the other) of
+## the active ring.
+func spawn_ring_member(kind: int, share: float, hp_mult := 1.0) -> int:
+	var g := minf(PI, ring_gap_width / maxf(0.5, ring_radius))
+	var angle := ring_gap + g * 0.5 + (TAU - g) * share
+	var at := ring_center + Vector3(cos(angle), 0.0, sin(angle)) * ring_radius
+	if arena != null and is_instance_valid(arena) and arena.has_method("safe_spawn"):
+		at = arena.safe_spawn(at, radius_of_kind(kind) + 0.1)
+	if not at.is_finite():
+		return -1
+	var i := spawn(kind, at, false, hp_mult)
+	if i >= 0:
+		_ring[i] = 1
+		_ring_angle[i] = share
+	return i
+
+
 func relocate(i: int, at: Vector3) -> void:
 	_pos[i] = Vector3(at.x, 0.0, at.z)
 	_vel[i] = Vector3.ZERO
@@ -211,10 +308,12 @@ func relocate(i: int, at: Vector3) -> void:
 	_state[i] = State.APPROACH
 	_appear[i] = 0.0
 	_near[i] = 1
+	_ring[i] = 0
 
 
 func clear() -> void:
 	_n = 0
+	ring_active = false
 	corpses.clear()
 	total_kills = 0
 	kills_by_kind = PackedInt32Array([0, 0, 0])
@@ -235,7 +334,27 @@ func nearest_index(point: Vector3, max_range: float) -> int:
 		if d2 < best_d2:
 			best_d2 = d2
 			best = i
+	if _boss_targetable():
+		# The boss counts from its body edge (a big body is "near" sooner).
+		var b := _boss_position()
+		var reach := sqrt(pow(b.x - point.x, 2.0) + pow(b.z - point.z, 2.0)) - _boss_radius()
+		if reach < max_range and maxf(0.0, reach) * maxf(0.0, reach) < best_d2:
+			best = BOSS_SLOT
 	return best
+
+
+func _boss_targetable() -> bool:
+	return boss != null and is_instance_valid(boss) and boss.has_method("is_targetable") and boss.is_targetable()
+
+
+func _boss_position() -> Vector3:
+	if boss == null or not is_instance_valid(boss):
+		return Vector3.INF
+	return Vector3(boss.position.x, 0.0, boss.position.z)
+
+
+func _boss_radius() -> float:
+	return float(boss.get("body_radius")) if boss != null and is_instance_valid(boss) else 0.0
 
 
 ## First enemy body a ray (xz) touches within max_distance:
@@ -245,7 +364,7 @@ func raycast(from: Vector3, direction: Vector3, max_distance: float) -> Dictiona
 	var best := -1
 	var best_t := max_distance
 	for i in _n:
-		var r := _radius[_kind[i]] + 0.08
+		var r := _radius[_kind[i]] * (PT.ELITE_SCALE if _elite[i] == 1 else 1.0) + 0.08
 		var p := _pos[i]
 		var rx := p.x - from.x
 		var rz := p.z - from.z
@@ -259,6 +378,18 @@ func raycast(from: Vector3, direction: Vector3, max_distance: float) -> Dictiona
 		if t < best_t:
 			best_t = t
 			best = i
+	if _boss_targetable():
+		var r := _boss_radius()
+		var b := _boss_position()
+		var rx := b.x - from.x
+		var rz := b.z - from.z
+		var along := rx * dir.x + rz * dir.z
+		var perp2 := rx * rx + rz * rz - along * along
+		if along >= -r and along - r <= best_t and perp2 <= r * r:
+			var t := maxf(0.0, along - sqrt(r * r - perp2))
+			if t < best_t:
+				best_t = t
+				best = BOSS_SLOT
 	return {"index": best, "distance": best_t}
 
 
@@ -272,6 +403,10 @@ func apply_hits(hits: Dictionary) -> int:
 	var kills := 0
 	for key in keys:
 		var i := int(key)
+		if i == BOSS_SLOT:
+			if hurt_boss(float(hits[key].damage)):
+				kills += 1
+			continue
 		if i < 0 or i >= _n:
 			continue
 		var hit: Dictionary = hits[key]
@@ -302,9 +437,19 @@ func hurt(i: int, amount: float, direction: Vector3, knock := -1.0) -> bool:
 	return killed
 
 
+## Damage on the boss: no knockback ever (bosses are immune). True on the kill.
+func hurt_boss(amount: float) -> bool:
+	if not _boss_targetable():
+		return false
+	var killed := bool(boss.take_damage(amount))
+	enemy_damaged.emit(_boss_position(), amount, T.Kind.BROCKEN, killed)
+	return killed
+
+
 func _kill(i: int, dir: Vector3, knock: float) -> void:
 	var kind := _kind[i]
 	var at := _pos[i]
+	var was_elite := _elite[i] == 1
 	total_kills += 1
 	kills_by_kind[kind] += 1
 	# Fling: light bodies fly along the shot, the Brocken topples where it stands.
@@ -324,11 +469,15 @@ func _kill(i: int, dir: Vector3, knock: float) -> void:
 	if corpses.size() >= CORPSE_CAP:
 		corpses.pop_front()
 	corpses.append({"kind": kind, "pos": at, "vel": fling + Vector3.UP * up, "yaw": _yaw[i], "axis": axis,
-		"spin": 9.0 if _mass[kind] == T.Mass.LIGHT else 3.0, "angle": 0.0, "age": 0.0, "landed": false})
-	enemy_killed.emit(kind, at)
+		"spin": 9.0 if _mass[kind] == T.Mass.LIGHT else 3.0, "angle": 0.0, "age": 0.0, "landed": false,
+		"scale": PT.ELITE_SCALE if was_elite else 1.0})
 	var last := _n - 1
 	if i != last:
 		_kind[i] = _kind[last]
+		_elite[i] = _elite[last]
+		_hp_max[i] = _hp_max[last]
+		_ring[i] = _ring[last]
+		_ring_angle[i] = _ring_angle[last]
 		_pos[i] = _pos[last]
 		_vel[i] = _vel[last]
 		_knock[i] = _knock[last]
@@ -346,6 +495,10 @@ func _kill(i: int, dir: Vector3, knock: float) -> void:
 		_appear[i] = _appear[last]
 		_near[i] = _near[last]
 	_n = last
+	# Signals after the swap: listeners may spawn (drops) without breaking the arrays.
+	enemy_killed.emit(kind, at)
+	if was_elite:
+		elite_killed.emit(at)
 
 
 # ---------------------------------------------------------------- update
@@ -392,6 +545,8 @@ func step(delta: float) -> void:
 		var want := Vector3.ZERO
 		var state := states[i]
 		var shown := _appear[i]
+		var elite := _elite[i] == 1
+		var reach := PT.ELITE_REACH if elite else _reach[k]
 		match state:
 			State.APPROACH:
 				want = Vector3(nx * speed, 0.0, nz * speed)
@@ -401,16 +556,25 @@ func step(delta: float) -> void:
 					var aim := Vector3(tx + hero_vel.x * lead * minf(1.0, d / 8.0), 0.0, tz + hero_vel.z * lead * minf(1.0, d / 8.0))
 					if aim.length_squared() > 0.0001:
 						want = aim.normalized() * speed
-				if guided and d > FLOW_NEAR:
+				if _ring[i] == 1 and ring_active:
+					# Formation: walk to the own slot on the shrinking ring; the
+					# slots squeeze together so the gap keeps its width in metres.
+					var g := minf(PI, ring_gap_width / maxf(0.5, ring_radius))
+					var a := ring_gap + g * 0.5 + (TAU - g) * _ring_angle[i]
+					var sx := ring_center.x + cos(a) * ring_radius - p.x
+					var sz := ring_center.z + sin(a) * ring_radius - p.z
+					var sd := sqrt(sx * sx + sz * sz)
+					want = Vector3(sx, 0.0, sz) / sd * minf(speed, sd * 4.0) if sd > 0.05 else Vector3.ZERO
+				elif guided and d > FLOW_NEAR:
 					var flow := _flow[i]
 					if (i + _frame) % FLOW_REFRESH == 0 or flow == Vector3.ZERO:
 						flow = arena.flow_direction(p, r)
 						_flow[i] = flow
 					if flow != Vector3.ZERO:
 						want = flow * speed
-				if shown >= 1.0 and d <= _engage[k] + hero_r and _hero_alive():
+				if shown >= 1.0 and d <= reach * T.ENGAGE_SHARE + hero_r and _hero_alive():
 					states[i] = State.WINDUP
-					timers[i] = _windup[k]
+					timers[i] = PT.ELITE_WINDUP if elite else _windup[k]
 					# Plant the feet: the wind-up is a clear stop, no sliding in.
 					vel[i] = Vector3.ZERO
 					dirs[i] = Vector3(nx, 0.0, nz)
@@ -419,23 +583,24 @@ func step(delta: float) -> void:
 				timers[i] -= delta
 				if timers[i] <= 0.0:
 					var dir := dirs[i]
-					var in_reach := d <= _reach[k] + hero_r
-					if in_reach and _arc_cos[k] > -1.0 and d > 0.0001:
+					var in_reach := d <= reach + hero_r
+					# The champion stomps all around; the others swing forward.
+					if in_reach and not elite and _arc_cos[k] > -1.0 and d > 0.0001:
 						in_reach = dir.x * nx + dir.z * nz >= _arc_cos[k]
 					var landed := false
 					strikes += 1
 					if in_reach and _hero_alive() and hero.has_method("take_hit"):
-						landed = bool(hero.take_hit(_damage[k], p))
+						landed = bool(hero.take_hit(PT.ELITE_DAMAGE if elite else _damage[k], p))
 					if landed:
 						strikes_hit += 1
-					swing_landed.emit(k, p + dir * minf(d, _reach[k]), landed)
+					swing_landed.emit(k, p if elite else p + dir * minf(d, _reach[k]), landed)
 					states[i] = State.STRIKE
 					timers[i] = STRIKE_SECONDS
 			State.STRIKE:
 				timers[i] -= delta
 				if timers[i] <= 0.0:
 					states[i] = State.RECOVER
-					timers[i] = _recover[k]
+					timers[i] = PT.ELITE_RECOVER if elite else _recover[k]
 			State.RECOVER:
 				# Shuffle closer slowly while recovering (no free hits, no full stop).
 				want = Vector3(nx * speed * 0.25, 0.0, nz * speed * 0.25)
@@ -632,6 +797,10 @@ func _allocate() -> void:
 	_flash.resize(CAP)
 	_appear.resize(CAP)
 	_near.resize(CAP)
+	_elite.resize(CAP)
+	_hp_max.resize(CAP)
+	_ring.resize(CAP)
+	_ring_angle.resize(CAP)
 	_head.resize(GRID * GRID)
 	_radius.resize(KINDS)
 	_reach.resize(KINDS)
@@ -800,7 +969,7 @@ func _draw() -> void:
 			var t: float = c.age / CORPSE_LIFE
 			var fade := 1.0 - clampf((t - 0.75) / 0.25, 0.0, 1.0)
 			var angle: float = minf(float(c.angle), PI * 0.5) if kind == T.Kind.BROCKEN else float(c.angle)
-			var basis := Basis(c.axis, angle) * Basis(Vector3.UP, float(c.yaw)) * Basis.from_scale(Vector3.ONE * lerpf(0.4, 1.0, fade))
+			var basis := Basis(c.axis, angle) * Basis(Vector3.UP, float(c.yaw)) * Basis.from_scale(Vector3.ONE * lerpf(0.4, 1.0, fade) * float(c.get("scale", 1.0)))
 			var at: Vector3 = c.pos
 			var xform := Transform3D(basis, at + Vector3(0, _radius[kind] * 0.4, 0)) * _base[kind]
 			var b := xform.basis
@@ -850,14 +1019,21 @@ func _pose(i: int) -> Array:
 	var sxz := 1.0
 	var glow := 0.0
 	var lunge := 0.0
+	var elite := _elite[i] == 1
+	var windup := PT.ELITE_WINDUP if elite else _windup[k]
 	match state:
 		State.WINDUP:
-			var w := 1.0 - _timer[i] / _windup[k]
+			var w := 1.0 - _timer[i] / windup
 			var e := 1.0 - (1.0 - w) * (1.0 - w)
 			lean = -0.42 * e
 			sy = 1.0 + 0.16 * e
 			sxz = 1.0 - 0.06 * e
 			glow = 0.25 + 0.75 * w
+			if elite:
+				# Champion: rears up high for the stomp.
+				lean = -0.6 * e
+				sy = 1.0 + 0.22 * e
+				hop += 0.45 * e
 			# Shiver just before the strike.
 			if w > 0.7:
 				lunge = sin(_timer[i] * 90.0) * 0.03
@@ -868,6 +1044,12 @@ func _pose(i: int) -> Array:
 			sy = 0.86
 			sxz = 1.12
 			glow = 1.0 - s
+			if elite:
+				# Slams straight down (all around, not forward).
+				lean = 0.15 * sin(s * PI)
+				lunge = 0.0
+				sy = 0.8
+				sxz = 1.16
 		State.STAGGER:
 			lean = -0.25
 			sy = 0.9
@@ -883,47 +1065,60 @@ func _pose(i: int) -> Array:
 		grow = 1.0 + 2.70158 * g * g * g + 1.70158 * g * g
 	var yaw := _yaw[i]
 	var fwd := Vector3(sin(yaw), 0.0, cos(yaw))
-	var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, lean) * Basis.from_scale(Vector3(sxz, sy, sxz) * grow)
+	var size := PT.ELITE_SCALE if elite else 1.0
+	var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, lean) * Basis.from_scale(Vector3(sxz, sy, sxz) * grow * size)
 	var xform := Transform3D(basis, Vector3(p.x, hop, p.z) + fwd * lunge) * _base[k]
-	return [xform, Color(_flash[i], glow, 0.0, 0.0), grow * (1.0 - hop)]
+	return [xform, Color(_flash[i], glow, 0.0, 1.0 if elite else 0.0), grow * (1.0 - minf(hop, 0.6)) * size]
 
 ## Magenta ground arcs under every Brocken that winds up (pooled meshes).
 func _draw_arcs() -> void:
 	var used := 0
+	var used_elite := 0
 	for i in _n:
 		var k := _kind[i]
 		if _arc_cos[k] <= -1.0 or (_state[i] != State.WINDUP and _state[i] != State.STRIKE):
 			continue
-		if used >= _arcs.size():
-			_arcs.append(_make_arc(k))
-		var arc := _arcs[used]
-		used += 1
+		var elite := _elite[i] == 1
+		var arc: MeshInstance3D
+		if elite:
+			if used_elite >= _elite_arcs.size():
+				_elite_arcs.append(_make_arc(k, true))
+			arc = _elite_arcs[used_elite]
+			used_elite += 1
+		else:
+			if used >= _arcs.size():
+				_arcs.append(_make_arc(k))
+			arc = _arcs[used]
+			used += 1
 		var dir := _dir[i]
 		arc.visible = true
 		arc.global_transform = Transform3D(Basis(Vector3.UP, atan2(dir.x, dir.z)), Vector3(_pos[i].x, 0.05, _pos[i].z))
 		var material := arc.material_override as ShaderMaterial
 		if _state[i] == State.WINDUP:
-			material.set_shader_parameter("progress", 1.0 - _timer[i] / _windup[k])
+			material.set_shader_parameter("progress", 1.0 - _timer[i] / (PT.ELITE_WINDUP if elite else _windup[k]))
 			material.set_shader_parameter("opacity", 1.0)
 		else:
 			material.set_shader_parameter("progress", 1.0)
 			material.set_shader_parameter("opacity", _timer[i] / STRIKE_SECONDS)
 	for index in range(used, _arcs.size()):
 		_arcs[index].visible = false
+	for index in range(used_elite, _elite_arcs.size()):
+		_elite_arcs[index].visible = false
 
 
-func _make_arc(kind: int) -> MeshInstance3D:
-	var outer := _reach[kind] + T.HERO_RADIUS
+## elite: the champion's full stomp ring instead of the forward arc.
+func _make_arc(kind: int, elite := false) -> MeshInstance3D:
+	var outer := (PT.ELITE_REACH if elite else _reach[kind]) + T.HERO_RADIUS
 	var plane := PlaneMesh.new()
 	plane.size = Vector2.ONE * (outer + 0.3) * 2.0
 	var arc := MeshInstance3D.new()
-	arc.name = "Brocken arc"
+	arc.name = "Champion stomp" if elite else "Brocken arc"
 	arc.mesh = plane
 	var material := ShaderMaterial.new()
 	material.shader = ARC_SHADER
 	material.set_shader_parameter("outer", outer)
-	material.set_shader_parameter("inner", _radius[kind] * 0.6)
-	material.set_shader_parameter("half_angle", acos(clampf(_arc_cos[kind], -1.0, 1.0)))
+	material.set_shader_parameter("inner", _radius[kind] * (0.9 if elite else 0.6))
+	material.set_shader_parameter("half_angle", PI if elite else acos(clampf(_arc_cos[kind], -1.0, 1.0)))
 	material.render_priority = 2
 	arc.material_override = material
 	arc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -936,6 +1131,15 @@ func _make_arc(kind: int) -> MeshInstance3D:
 func arcs_visible() -> int:
 	var shown := 0
 	for arc in _arcs:
+		if arc.visible:
+			shown += 1
+	return shown
+
+
+## Champion stomp rings shown right now (tests, captures).
+func elite_arcs_visible() -> int:
+	var shown := 0
+	for arc in _elite_arcs:
 		if arc.visible:
 			shown += 1
 	return shown

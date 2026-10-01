@@ -25,7 +25,8 @@ void fragment() {
 	float d = length(v_local);
 	float a = abs(atan(v_local.x, v_local.y));
 	// Distance (metres) outside the sector: negative inside.
-	float side = (a - half_angle) * max(d, 0.001);
+	// half_angle >= PI: a full ring (stomp), no side edges (and no seam behind).
+	float side = half_angle >= 3.14 ? -100.0 : (a - half_angle) * max(d, 0.001);
 	float radial = max(d - outer, inner - d);
 	float sdf = max(side, radial);
 	float edge_w = 0.12;

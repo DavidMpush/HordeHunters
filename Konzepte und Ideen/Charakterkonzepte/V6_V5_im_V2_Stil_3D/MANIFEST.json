@@ -1,0 +1,27 @@
+[
+  {
+    "Path": "00_charakterreihe_uebersicht.png",
+    "Bytes": 1644791,
+    "SHA256": "F8844984F1A5AC92892AC791B132F51A85FFC2B14F2CB1FD81A8372523678435"
+  },
+  {
+    "Path": "01_rugo_faustkaempfer_front_a_pose.png",
+    "Bytes": 1637534,
+    "SHA256": "48B19C519651603FEAFC14DABFAE4C959F44C8014653FA1103A40C28A5D74CD7"
+  },
+  {
+    "Path": "02_jett_energiekaempfer_front_a_pose.png",
+    "Bytes": 1627004,
+    "SHA256": "2129F138B5FA314D192E1E96252715E00A33D62FEEAF32009F52C3EECE70526F"
+  },
+  {
+    "Path": "03_sera_lichtklingenkaempferin_front_a_pose.png",
+    "Bytes": 1678784,
+    "SHA256": "24548149B5EE0AECE5786EDBB247770369CD6F8B7F5F6239FD54C1D143696293"
+  },
+  {
+    "Path": "04_sera_lichtklinge_separat.png",
+    "Bytes": 1161555,
+    "SHA256": "AAAF2D35847D6E2BE580E83AE2ADFB0CC53FA34963C7928167791AA46176236F"
+  }
+]

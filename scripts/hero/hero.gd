@@ -11,10 +11,13 @@ signal dashed(direction: Vector3)
 
 const T := preload("res://scripts/core/tuning.gd")
 const MODEL := preload("res://scripts/hero/brann_model.gd")
+const BUILD := preload("res://scripts/progression/progress.gd")
 
 var arena: Node3D
 var model: Node3D
 var effects: Node3D
+## Stage 2: the run's build (scripts/progression/progress.gd); null = base values.
+var build: RefCounted
 
 var max_health := T.HERO_HP
 var health := T.HERO_HP
@@ -61,6 +64,22 @@ func reset(at: Vector3) -> void:
 		model.hurt = 0.0
 
 
+## Build value for `id` (damage_mult, range_mult, pellets_bonus, ...; see
+## progress.gd). Without a build: 1 for "*_mult", else 0.
+func stat(id: String) -> float:
+	if build != null:
+		return build.stat(id)
+	return BUILD.default_stat(id)
+
+
+func move_speed() -> float:
+	return speed * stat("speed_mult")
+
+
+func dash_cooldown_time() -> float:
+	return T.DASH_COOLDOWN * stat("dash_cooldown_mult")
+
+
 func is_dead() -> bool:
 	return dead
 
@@ -79,7 +98,7 @@ func dash_ready() -> bool:
 
 ## Share of the dash cooldown still to wait (1 = just used, 0 = ready).
 func dash_charge() -> float:
-	return clampf(dash_cooldown / T.DASH_COOLDOWN, 0.0, 1.0)
+	return clampf(dash_cooldown / dash_cooldown_time(), 0.0, 1.0)
 
 
 ## Starts a dash along `direction` (zero = facing). False while cooling down.
@@ -91,7 +110,7 @@ func dash(direction: Vector3 = Vector3.ZERO) -> bool:
 		dir = facing
 	dash_direction = dir.normalized()
 	dash_left = T.DASH_SECONDS
-	dash_cooldown = T.DASH_COOLDOWN
+	dash_cooldown = dash_cooldown_time()
 	dash_count += 1
 	if model != null:
 		model.dash = 1.0
@@ -105,6 +124,7 @@ func dash(direction: Vector3 = Vector3.ZERO) -> bool:
 func take_hit(damage: float, from: Vector3) -> bool:
 	if not can_be_hit():
 		return false
+	damage *= 1.0 - stat("armor")
 	health = maxf(0.0, health - damage)
 	damage_taken += damage
 	hits_taken += 1
@@ -133,6 +153,10 @@ func step(delta: float, move: Vector2) -> void:
 			model.move_amount = 0.0
 			model.animate(delta)
 		return
+	var regen := stat("regen")
+	if regen > 0.0:
+		health = minf(max_health, health + regen * delta)
+	var top_speed := move_speed()
 	var wish := Vector3(move.x, 0.0, move.y)
 	if wish.length_squared() > 1.0:
 		wish = wish.normalized()
@@ -141,14 +165,14 @@ func step(delta: float, move: Vector2) -> void:
 		var step_time := minf(delta, dash_left)
 		dash_left -= delta
 		motion = dash_direction * (T.DASH_DISTANCE / T.DASH_SECONDS) * step_time
-		velocity = dash_direction * speed
+		velocity = dash_direction * top_speed
 		if effects != null and is_instance_valid(effects):
 			_dust_clock -= delta
 			if _dust_clock <= 0.0:
 				_dust_clock = 0.03
 				effects.dust(position, 1, 0.45, Color(1.0, 0.92, 0.75, 0.5))
 	else:
-		var target := wish * speed
+		var target := wish * top_speed
 		var change := target - velocity
 		var max_change := T.HERO_ACCEL * delta
 		if change.length() > max_change:
@@ -169,7 +193,7 @@ func _animate(delta: float, wish: Vector3) -> void:
 	if model == null:
 		return
 	var moving := Vector3(velocity.x, 0.0, velocity.z)
-	model.move_amount = clampf(moving.length() / speed, 0.0, 1.0)
+	model.move_amount = clampf(moving.length() / move_speed(), 0.0, 1.0)
 	if moving.length_squared() > 0.04:
 		model.move_yaw = atan2(moving.x, moving.z)
 	model.aim_yaw = aim_yaw if not is_nan(aim_yaw) else atan2(facing.x, facing.z)

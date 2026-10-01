@@ -34,6 +34,8 @@ var dash_charge := 0.0           # 0 = ready, 1 = just used
 var dead := false
 var result_button := Rect2()     # NOCHMAL hit area while the result shows
 var show_result := false
+## A choice screen is open (level-up, cocoon): no stick, no dash.
+var blocked := false
 
 
 func _ready() -> void:
@@ -84,7 +86,7 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if dead and show_result and event.keycode in [KEY_R, KEY_ENTER, KEY_SPACE, KEY_KP_ENTER]:
 			restart_requested.emit()
-		elif not dead and event.keycode in [KEY_SPACE, KEY_SHIFT]:
+		elif not dead and not blocked and event.keycode in [KEY_SPACE, KEY_SHIFT]:
 			request_dash()
 		return
 	if event is InputEventScreenTouch:
@@ -107,6 +109,8 @@ func _press(pointer: int, location: Vector2) -> void:
 	if dead:
 		if show_result and result_button.grow(12.0).has_point(location):
 			restart_requested.emit()
+		return
+	if blocked:
 		return
 	if dash_pointer == -1 and location.distance_to(dash_center()) < DASH_TOUCH_R:
 		dash_pointer = pointer
@@ -152,14 +156,15 @@ func _process(delta: float) -> void:
 	var knob := movement_vector * MOVE_RADIUS
 	_knob = _knob.lerp(knob, 1.0 - exp(-30.0 * delta))
 	# Repaint only when something visible changed (the kit shapes are costly).
-	var key := [dead, movement_pointer != -1, _origin.round(), _knob.round(), snappedf(dash_charge, 0.01), dash_pointer != -1, snappedf(_dash_flash, 0.02), snappedf(_denied, 0.02), size]
+	var key := [dead, blocked, movement_pointer != -1, _origin.round(), _knob.round(), snappedf(dash_charge, 0.01), dash_pointer != -1, snappedf(_dash_flash, 0.02), snappedf(_denied, 0.02), size]
 	if key != _key:
 		_key = key
 		queue_redraw()
 
 
 func _draw() -> void:
-	if dead:
+	# Hidden while dead or while a choice screen is open (its buttons sit there).
+	if dead or blocked:
 		return
 	_draw_joystick()
 	_draw_dash()
