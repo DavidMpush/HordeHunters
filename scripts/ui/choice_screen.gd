@@ -23,7 +23,7 @@ const DIM_IN := 0.15
 const CLOSE_OUT := 0.22
 ## Taps right after opening are ignored (a finger still on the stick).
 const GUARD := 0.3
-const TYPE_TAB := {"stat": "WERT", "shotgun": "WAFFE", "weapon": "WAFFE", "new_weapon": "NEUE WAFFE", "relic": "RELIKT", "gold": "GOLD"}
+const TYPE_TAB := {"stat": "WERT", "weapon": "WAFFE", "new_weapon": "NEUE WAFFE", "relic": "RELIKT", "gold": "GOLD"}
 const CHEST_TITLE := {"map": "KOKON!", "free": "ELITE-KOKON!", "boss": "BOSS-KOKON!"}
 
 var progression: Node
@@ -271,8 +271,8 @@ func _draw_card(rect: Rect2, entry: Dictionary) -> void:
 		"stat":
 			_value_line(Vector2(x0, body.position.y + 46.0), String(entry.before), String(entry.after), t, width)
 			Kit.paragraph(self, Vector2(x0, body.position.y + 104.0), String(entry.label), width, UiStyle.T_BODY, Color.WHITE, true, Kit.LEFT, 1)
-		"shotgun", "weapon", "new_weapon":
-			var line := "RANG %d → %d" % [int(entry.from), int(entry.to)]
+		"weapon", "new_weapon":
+			var line := "STUFE %d → %d" % [int(entry.from), int(entry.to)]
 			if type == "new_weapon":
 				line = "NEUE WAFFE"
 			Kit.text_outlined(self, Vector2(x0, body.position.y + 40.0), line, UiStyle.T_HEAD, t["light"], -1, -1, null, Kit.LEFT | Kit.MIDDLE, width)
@@ -283,8 +283,11 @@ func _draw_card(rect: Rect2, entry: Dictionary) -> void:
 				Kit.text_outlined(self, Vector2(x0, body.end.y - 30.0), "STAPEL %d → %d" % [int(entry.from), int(entry.to)], UiStyle.T_LABEL, t["light"], -1, -1, null, Kit.LEFT | Kit.MIDDLE)
 		_:
 			Kit.paragraph(self, Vector2(x0, body.position.y + 40.0), String(entry.text), width, UiStyle.T_BODY, Color.WHITE, true, Kit.LEFT, 2)
-	if type in ["stat", "shotgun", "weapon", "new_weapon"]:
+	if type == "stat":
 		_pips(Vector2(body.end.x - 22.0, body.end.y - 28.0), int(entry.from), int(entry.to), t)
+	elif type == "weapon":
+		# Five pips = the five upgrades (level 1 is the weapon itself).
+		_pips(Vector2(body.end.x - 22.0, body.end.y - 28.0), int(entry.from) - 1, int(entry.to) - 1, t)
 	# Type tab on the top edge.
 	var tab_label := String(TYPE_TAB.get(type, ""))
 	if tab_label != "":

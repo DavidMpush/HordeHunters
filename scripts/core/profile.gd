@@ -6,6 +6,8 @@ extends RefCounted
 #               vibration, damage_numbers (bool)
 #   records     per hero: best_time (s), best_kills, best_level, runs
 #   runs_total  finished runs (death) over all heroes
+#   disabled_weapons  weapon ids switched off in the menu's Arsenal (never
+#               offered as NEUE WAFFE); default [] = every weapon in the pool
 # Loading is robust: a missing, unreadable or broken file (bad JSON, wrong
 # types, out-of-range numbers) falls back to defaults field by field, never
 # throws. load_state tells what happened ("ok", "missing", "corrupt").
@@ -26,6 +28,7 @@ var hero_id := DEFAULT_HERO
 var settings: Dictionary = {}
 var records: Dictionary = {}
 var runs_total := 0
+var disabled_weapons: Array = []
 var load_state := "missing"
 
 
@@ -38,6 +41,7 @@ func reset_defaults() -> void:
 	settings = SETTING_DEFAULTS.duplicate()
 	records = {}
 	runs_total = 0
+	disabled_weapons = []
 
 
 ## Profile from `file_path`; defaults when the file is missing or broken.
@@ -74,6 +78,7 @@ func to_dict() -> Dictionary:
 		"settings": settings.duplicate(),
 		"records": records.duplicate(true),
 		"runs_total": runs_total,
+		"disabled_weapons": disabled_weapons.duplicate(),
 	}
 
 
@@ -120,6 +125,17 @@ func apply_dict(d: Dictionary) -> bool:
 	else:
 		clean = false
 	runs_total = maxi(0, int(_num(d.get("runs_total"), 0.0)))
+	var off: Variant = d.get("disabled_weapons", [])
+	disabled_weapons = []
+	if off is Array:
+		for entry in off:
+			if entry is String and String(entry) != "":
+				if not disabled_weapons.has(String(entry)):
+					disabled_weapons.append(String(entry))
+			else:
+				clean = false
+	else:
+		clean = false
 	return clean
 
 
@@ -146,6 +162,23 @@ func set_setting(key: String, value: Variant) -> void:
 		settings[key] = bool(value)
 	else:
 		settings[key] = clampf(float(value), 0.0, 1.0)
+
+
+# ---------------------------------------------------------------- arsenal
+
+## False when id is switched off in the Arsenal.
+func is_weapon_enabled(id: String) -> bool:
+	return not disabled_weapons.has(id)
+
+
+## Switches id in (true) or out of the run's weapon pool; the caller saves.
+func set_weapon_enabled(id: String, on: bool) -> void:
+	if id == "":
+		return
+	if on:
+		disabled_weapons.erase(id)
+	elif not disabled_weapons.has(id):
+		disabled_weapons.append(id)
 
 
 # ---------------------------------------------------------------- records

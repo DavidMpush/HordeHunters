@@ -76,3 +76,24 @@ Quelle: Nutzer 01.10.2026 („mach gerne weiter, auch mal mit Pause und Menü“
 
 ## Nachtrag 01.10. – Brine-Modell
 Der Boxer heißt jetzt **Brine** (vorher Rocco). Das echte Modell kommt aus Tencent 3D Studio: Rig plus Clip „Double Punch“, verarbeitet mit `tools/build_rigged_hero.gd`. Es ersetzt das Platzhaltermodell. Details und Bedarf je Modell stehen in `ASSET_PIPELINE.md`.
+
+## Nachtrag 01.10. – Einheitliches Waffensystem und Arsenal (wie Megabonk)
+- **Ein System für alle Waffen** (`progress.gd` WEAPONS/WEAPON_ORDER):
+  - Jede Waffe startet auf **Stufe 1** und hat **5 Upgrades** bis Stufe 6, jedes mit eigenem Schritt.
+  - Eine Karte gibt immer +1 Stufe. Die Seltenheit erhöht nur die **Kraft** (Schadensfaktor 0,75 + 0,25 × Einheiten), auch bei der Startwaffe.
+  - Kartentypen: „NEUE WAFFE“ und „WAFFE · STUFE x → y“. Den Sondertyp „shotgun“ gibt es nicht mehr.
+  - Axt, Schwert und Granate haben eine neue Stufe 6: Riesenaxt, Klingensturm, Streubombe.
+- **Jeder Held kann jede Waffe nehmen**, z. B. Brine die Schrotflinte.
+  - Ausnahme sind Signaturwaffen (`signature`). Die Fäuste brauchen Brines Körper.
+  - Die Startwaffe wird beim Ziehen 3-fach gewichtet, damit sie regelmäßig Upgrades bekommt.
+- **Schrotflinten-Relikte** (Pulverhorn, Bleihagel, Patronengurt) kommen nur, wenn die Flinte im Besitz ist (`needs`).
+  - Neu dafür: das allgemeine Relikt **Kriegstrommel** (+12 % Angriffstempo aller Waffen).
+  - Der Wert „Feuerrate“ heißt jetzt „Angriffstempo“.
+- **Arsenal im Menü** (`scripts/menu/arsenal_sheet.gd`):
+  - Waffen an- oder ausschalten. Ausgeschaltete Waffen kommen nie als neue Waffe.
+  - Gespeichert im Profil (`disabled_weapons`), übergeben über `Session.config.disabled_weapons`.
+  - Die Startwaffe ist immer dabei.
+- Tests:
+  - `arsenal` ist neu.
+  - `upgrades`, `new_weapons`, `fists` und `result` sind auf die Stufen umgestellt.
+  - Smart-Bot: Brann (ohne Upgrades) 3:42; Brine nahm die Flinte dazu und kam auf 5:52.

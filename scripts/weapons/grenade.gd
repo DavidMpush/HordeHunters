@@ -7,7 +7,7 @@ extends "res://scripts/weapons/weapon.gd"
 #   the hero), then explodes: damage to everything within RADIUS, knockback
 #   outwards by mass, fireball, ring, dust, sparks, camera shake.
 #   Rank 1 base, 2 more damage + faster, 3 radius +25 %, 4 more damage +
-#   faster, 5 two grenades. Damage x power_factor().
+#   faster, 5 two grenades, 6 three. Damage x power_factor().
 
 signal exploded(at: Vector3, hits: int, kills: int)
 
@@ -72,7 +72,7 @@ func damage() -> float:
 
 
 func count() -> int:
-	return 2 if rank() >= 5 else 1
+	return 3 if rank() >= 6 else (2 if rank() >= 5 else 1)
 
 
 func step(delta: float) -> void:

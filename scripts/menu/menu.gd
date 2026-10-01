@@ -4,12 +4,13 @@ extends Control
 #   backdrop  key art (assets/branding/key_art_1200.png), cover-cropped on
 #             the heroes, slowly panning, dimmed towards top and bottom
 #   title     logo (assets/branding/logo_900.png), hero card (portrait, name,
-#             title, weapon, short text; tap -> hero choice), SPIELEN,
-#             STATISTIK and EINSTELLUNGEN
-#   sheets    hero_select.gd, settings_sheet.gd, stats_sheet.gd (children,
-#             one visible at a time)
+#             title, weapon, short text; tap -> hero choice), SPIELEN and
+#             a row of three tile buttons: STATISTIK, ARSENAL, EINSTELLUNGEN
+#   sheets    hero_select.gd, arsenal_sheet.gd, settings_sheet.gd,
+#             stats_sheet.gd (children, one visible at a time)
 # SPIELEN hands {hero_id, seed} to main.tscn through Session (scripts/core/
-# session.gd). Keys: Enter = SPIELEN, H = heroes, Esc = back to the title.
+# session.gd). Keys: Enter = SPIELEN, H = heroes, A = arsenal, S = settings,
+# Esc = back to the title.
 
 const UiStyle := preload("res://scripts/ui/ui_style.gd")
 const Kit := preload("res://scripts/ui/ui_kit_brawl.gd")
@@ -21,6 +22,7 @@ const PARTS := preload("res://scripts/menu/menu_parts.gd")
 const HERO_SELECT := preload("res://scripts/menu/hero_select.gd")
 const SETTINGS := preload("res://scripts/menu/settings_sheet.gd")
 const STATS := preload("res://scripts/menu/stats_sheet.gd")
+const ARSENAL := preload("res://scripts/menu/arsenal_sheet.gd")
 
 const KEY_ART := "res://assets/branding/key_art_1200.png"
 const LOGO := "res://assets/branding/logo_900.png"
@@ -28,7 +30,7 @@ const LOGO := "res://assets/branding/logo_900.png"
 ## Brine and his companions, the logo of the art stays outside.
 const ART_FOCUS := 0.68
 const ART_PAN := 0.02
-const WEAPON_ICONS := {"shotgun": "shotgun", "fists": "burst"}
+const WEAPON_ICONS := {"shotgun": "shotgun", "fists": "fists", "axe": "axe", "sword": "sword", "grenade": "grenade"}
 
 var screen := "title"
 ## Run start requested (SPIELEN): the scene changes after the loading frame.
@@ -59,7 +61,7 @@ func _ready() -> void:
 	add_child(_backdrop)
 	_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_backdrop.draw.connect(_draw_backdrop)
-	for entry in [["heroes", HERO_SELECT], ["settings", SETTINGS], ["stats", STATS]]:
+	for entry in [["heroes", HERO_SELECT], ["settings", SETTINGS], ["stats", STATS], ["arsenal", ARSENAL]]:
 		var sheet: Control = entry[1].new()
 		sheet.name = String(entry[0]).capitalize()
 		sheet.menu = self
@@ -86,7 +88,7 @@ func choose_hero(id: String) -> void:
 	_refresh()
 
 
-## "title", "heroes", "settings" or "stats".
+## "title", "heroes", "settings", "stats" or "arsenal".
 func show_screen(id: String) -> void:
 	if id != "title" and not sheets.has(id):
 		return
@@ -143,12 +145,22 @@ func play_rect() -> Rect2:
 	return Rect2(Vector2(size.x * 0.5 - 320.0, _oy() + 1196.0), Vector2(640.0, 156.0))
 
 
+## Bottom row of tile buttons (0 = STATISTIK, 1 = ARSENAL, 2 = EINSTELLUNGEN).
+func tile_rect(index: int) -> Rect2:
+	var w := (820.0 - 2.0 * 14.0) / 3.0
+	return Rect2(Vector2(size.x * 0.5 - 410.0 + float(index) * (w + 14.0), _oy() + 1388.0), Vector2(w, 124.0))
+
+
 func stats_rect() -> Rect2:
-	return Rect2(Vector2(size.x * 0.5 - 410.0, _oy() + 1394.0), Vector2(400.0, 100.0))
+	return tile_rect(0)
+
+
+func arsenal_rect() -> Rect2:
+	return tile_rect(1)
 
 
 func settings_rect() -> Rect2:
-	return Rect2(Vector2(size.x * 0.5 + 10.0, _oy() + 1394.0), Vector2(400.0, 100.0))
+	return tile_rect(2)
 
 
 # ---------------------------------------------------------------- input
@@ -212,6 +224,8 @@ func _key(code: int) -> void:
 			show_screen("heroes")
 		KEY_S:
 			show_screen("settings")
+		KEY_A:
+			show_screen("arsenal")
 
 
 ## A press at `at` (screen px) on the current screen (tests call this).
@@ -228,6 +242,8 @@ func tap(at: Vector2) -> void:
 		show_screen("heroes")
 	elif stats_rect().grow(6.0).has_point(at):
 		show_screen("stats")
+	elif arsenal_rect().grow(6.0).has_point(at):
+		show_screen("arsenal")
 	elif settings_rect().grow(6.0).has_point(at):
 		show_screen("settings")
 
@@ -294,17 +310,21 @@ func _draw() -> void:
 	var mid := Kit.button_label_center(shown, starting)
 	PARTS.play(self, Vector2(shown.position.x + 104.0, mid.y), 30.0)
 	Kit.text_outlined(self, Vector2(shown.get_center().x + 40.0, mid.y), "LÄDT ..." if starting else "SPIELEN", UiStyle.T_HERO, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, shown.size.x - 200.0)
-	# Statistics and settings.
-	var st := stats_rect()
-	Kit.button(self, st, "neutral", false, UiStyle.R_L)
-	var st_mid := Kit.button_label_center(st)
-	Icons.draw(self, "trophy", Vector2(st.position.x + 58.0, st_mid.y), 60.0)
-	Kit.text_outlined(self, Vector2(st.position.x + 100.0, st_mid.y), "STATISTIK", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE, st.size.x - 120.0)
-	var se := settings_rect()
-	Kit.button(self, se, "neutral", false, UiStyle.R_L)
-	var se_mid := Kit.button_label_center(se)
-	PARTS.gear(self, Vector2(se.position.x + 56.0, se_mid.y), 26.0)
-	Kit.text_outlined(self, Vector2(se.position.x + 100.0, se_mid.y), "EINSTELLUNGEN", UiStyle.T_HEAD, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE, se.size.x - 120.0)
+	# Statistics, arsenal and settings: tile buttons, icon over the label.
+	var labels := ["STATISTIK", "ARSENAL", "EINSTELLUNGEN"]
+	for k in 3:
+		var tile := tile_rect(k)
+		Kit.button(self, tile, "neutral", false, UiStyle.R_L)
+		var tile_mid := Kit.button_label_center(tile)
+		var icon_at := Vector2(tile_mid.x, tile_mid.y - 18.0)
+		match k:
+			0:
+				Icons.draw(self, "trophy", icon_at, 64.0)
+			1:
+				Icons.draw(self, "sword", icon_at, 60.0)
+			2:
+				PARTS.gear(self, icon_at, 24.0)
+		Kit.text_outlined(self, Vector2(tile_mid.x, tile_mid.y + 34.0), labels[k], UiStyle.T_LABEL + 4, Color.WHITE, -1, -1, null, Kit.CENTER | Kit.MIDDLE, tile.size.x - 24.0)
 
 
 # Soft warm glow behind the logo so it stands off the art.

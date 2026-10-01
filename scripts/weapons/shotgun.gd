@@ -157,7 +157,7 @@ func fire(direction: Vector3) -> int:
 	last_pellets.clear()
 	var reach := gun_range()
 	var range_mult := reach / T.GUN_RANGE
-	var damage_mult := _stat("damage_mult")
+	var damage_mult := _stat("damage_mult") * power_factor()
 	var crit := _stat("crit")
 	var pierce := int(_stat("pierce"))
 	var knock_mult := _stat("knockback_mult")

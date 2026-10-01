@@ -4,21 +4,22 @@ extends RefCounted
 #   stats    11 values, at most SLOTS (6) different per run, 5 ranks each.
 #            A pick raises the rank by 1 and the value by the rarity factor of
 #            the card (common 1.0 .. legendary 3.0); effect = step x value.
-#   shotgun  own upgrade track, 5 ranks in a fixed order (SHOTGUN_STEPS);
-#            rarity = rank jump (epic +2, legendary +3), like Mawlings weapons.
 #   relics   hero relics from cocoons only (RELICS), at most RELIC_SLOTS
-#            different, a few stacks each.
-# Level-ups offer stats + the shotgun track; cocoons offer relics + stats with
-# a rarity floor per cocoon kind. One reroll per run (level-up and cocoon).
+#            different, a few stacks each; relics with "needs" (shotgun
+#            relics) only while that weapon is owned.
+# Level-ups offer stats + weapons; cocoons offer relics + stats with a rarity
+# floor per cocoon kind. One reroll per run (level-up and cocoon).
 #
-# Stage 3 (Teil B §2-4) - weapons, at most WEAPON_SLOTS (4) per run:
-#   start_weapon  the hero's own weapon (shotgun / fists), owned from the start,
-#                 track 0..5 in a fixed order, rarity = rank jump (as shotgun)
-#   extras        axe / sword / grenade for every hero: a "NEUE WAFFE" card
-#                 (type "new_weapon", rank 0 -> 1) while a slot is free, then
-#                 rank-ups (type "weapon"); rank +1 per pick and power units
-#                 + rarity factor like stats (weapon_power(id))
-#   Cards of the shotgun keep the type "shotgun"; fists use type "weapon".
+# Weapons (one system for all, like Megabonk), at most WEAPON_SLOTS (4):
+#   level    1 when taken, +1 per card up to MAX_LEVEL (6): 5 upgrades, each
+#            with its own step (WEAPONS[id].steps[level - 2]).
+#   power    rarity units like stats (taking it counts too, the start weapon
+#            starts with 1): damage x power_factor() in every weapon.
+#   cards    "new_weapon" (NEUE WAFFE, 0 -> 1) while a slot is free, then
+#            "weapon" (level +1). The start weapon is owned from the start.
+#   pool     every weapon of WEAPON_ORDER except those switched off in the
+#            menu's Arsenal (set_disabled) and signature weapons of other
+#            heroes ("signature": hero id, e.g. the fists of Brine).
 #
 # Everything the hero and the shotgun read goes through stat(id) (hero.stat()):
 #   damage_mult, fire_rate_mult, reload_mult, range_mult, fan_mult,
@@ -27,8 +28,8 @@ extends RefCounted
 #   dash_cooldown_mult, thorns, trophy_heal
 #
 # Offer entries (Dictionary), also stored in `picks`:
-#   {"type": "stat"|"shotgun"|"relic"|"gold", "id", "name", "text", "rarity",
-#    "icon", "from", "to", "before", "after", "label", "amount"}
+#   {"type": "stat"|"weapon"|"new_weapon"|"relic"|"gold", "id", "name", "text",
+#    "rarity", "icon", "from", "to", "before", "after", "label", "amount"}
 
 const RARITIES := ["common", "uncommon", "rare", "epic", "legendary"]
 const RARITY_FACTOR := {"common": 1.0, "uncommon": 1.25, "rare": 1.5, "epic": 2.0, "legendary": 3.0}
@@ -39,11 +40,9 @@ const MAX_RANK := 5
 const SLOTS := 6
 const RELIC_SLOTS := 6
 const RELIC_MAX_STACK := 3
-const RELIC_STACK_LIMIT := {"ahnenamulett": 1, "bleihagel": 2, "patronengurt": 2}
+const RELIC_STACK_LIMIT := {"ahnenamulett": 1, "bleihagel": 2, "patronengurt": 2, "kriegstrommel": 2}
 const REROLLS_PER_RUN := 1
 const CHOICES := 3
-## Share of level-up offers that carry the shotgun track while it can grow.
-const SHOTGUN_SHARE := 0.5
 ## Cocoons: share of relic cards (rest stats).
 const RELIC_SHARE := 0.6
 ## Lowest rarity per cocoon kind (map = paid with gold, free = elite drop).
@@ -58,8 +57,8 @@ const ARMOR_CAP := 0.6
 
 const STATS := [
 	{"id": "damage", "name": "Schaden", "step": 0.08, "unit": "pct", "label": "Schaden", "icon": "burst"},
-	{"id": "firerate", "name": "Feuerrate", "step": 0.07, "unit": "pct", "label": "Feuerrate und Nachladetempo", "icon": "clock"},
-	{"id": "range", "name": "Reichweite", "step": 0.06, "unit": "pct", "label": "Reichweite der Waffe", "icon": "aim"},
+	{"id": "firerate", "name": "Angriffstempo", "step": 0.07, "unit": "pct", "label": "Angriffstempo aller Waffen", "icon": "clock"},
+	{"id": "range", "name": "Reichweite", "step": 0.06, "unit": "pct", "label": "Reichweite der Waffen", "icon": "aim"},
 	{"id": "speed", "name": "Tempo", "step": 0.05, "unit": "pct", "label": "Lauftempo", "icon": "boot"},
 	{"id": "maxhp", "name": "Max-LP", "step": 15.0, "unit": "flat", "label": "Max-LP", "icon": "heart"},
 	{"id": "regen", "name": "Regeneration", "step": 0.4, "unit": "lps", "label": "LP je Sekunde", "icon": "regen"},
@@ -70,77 +69,84 @@ const STATS := [
 	{"id": "luck", "name": "Glück", "step": 1.0, "unit": "luck", "label": "seltenere Karten, billigere Kokons", "icon": "clover"},
 ]
 
-const SHOTGUN_NAME := "Schrotflinte"
-const SHOTGUN_STEPS := [
-	{"name": "+1 Kugel", "text": "+1 Kugel je Schuss"},
-	{"name": "Durchschlag", "text": "Kugeln treffen 1 weiteren Gegner"},
-	{"name": "Wucht", "text": "+50 % Rückstoß"},
-	{"name": "Großes Magazin", "text": "+1 Schuss im Magazin"},
-	{"name": "Würgebohrung", "text": "Fächer 30 % enger, +25 % Reichweite"},
-]
-const RANK_GAIN := {"common": 1, "uncommon": 1, "rare": 1, "epic": 2, "legendary": 3}
-
 const WEAPON_SLOTS := 4
-## Share of level-up offers with an extra weapon card (new or rank-up).
-const EXTRA_SHARE := 0.45
-const FISTS_STEPS := [
-	{"name": "Weiter Bogen", "text": "Schlagbogen ±65°, Haken ±100°"},
-	{"name": "Schnelle Kombo", "text": "Kombo 25 % schneller"},
-	{"name": "Schockwelle", "text": "Der Haken löst eine Schockwelle aus"},
-	{"name": "Lebensraub", "text": "Jeder Schlag mit Treffer heilt 1,5 LP"},
-	{"name": "Hammerfaust", "text": "Vierter Schlag: Hammerfaust rundum"},
-]
-## kind "track": hero weapon (fixed steps, rarity = rank jump);
-## kind "extra": offered to every hero as NEUE WAFFE, rarity = power units.
+## Weapon level: 1 when taken, 5 upgrades.
+const MAX_LEVEL := 6
+## Level-up: chance of a first and of a second weapon card (new or upgrade).
+const WEAPON_SHARE := 0.65
+const SECOND_WEAPON_SHARE := 0.3
+## Owned weapons weigh more than new ones when a weapon card is dealt.
+const OWNED_WEIGHT := 3.0
+## Every weapon: intro (NEUE WAFFE card, Arsenal), steps = levels 2..6,
+## signature = hero id whose body it needs ("" = every hero may take it).
+const WEAPON_ORDER := ["shotgun", "fists", "axe", "sword", "grenade"]
 const WEAPONS := {
-	"shotgun": {"name": "Schrotflinte", "icon": "shotgun", "kind": "track", "steps": SHOTGUN_STEPS},
-	"fists": {"name": "Fäuste", "icon": "fists", "kind": "track", "steps": FISTS_STEPS},
-	"axe": {"name": "Wurfaxt", "icon": "axe", "kind": "extra", "steps": [
-		{"name": "Wurfaxt", "text": "Fliegt im Bogen, durchschlägt Gegner und kehrt zurück"},
+	"shotgun": {"name": "Schrotflinte", "icon": "shotgun", "signature": "",
+		"intro": "Zwei Schuss, dann Nachladen. Ein Schrotfächer wirft leichte Gegner um.", "steps": [
+		{"name": "+1 Kugel", "text": "+1 Kugel je Schuss"},
+		{"name": "Durchschlag", "text": "Kugeln treffen 1 weiteren Gegner"},
+		{"name": "Wucht", "text": "+50 % Rückstoß"},
+		{"name": "Großes Magazin", "text": "+1 Schuss im Magazin"},
+		{"name": "Würgebohrung", "text": "Fächer 30 % enger, +25 % Reichweite"},
+	]},
+	"fists": {"name": "Fäuste", "icon": "fists", "signature": "boxer",
+		"intro": "Links, rechts, Aufwärtshaken: Kombo gegen die nächsten Gegner.", "steps": [
+		{"name": "Weiter Bogen", "text": "Schlagbogen ±65°, Haken ±100°"},
+		{"name": "Schnelle Kombo", "text": "Kombo 25 % schneller"},
+		{"name": "Schockwelle", "text": "Der Haken löst eine Schockwelle aus"},
+		{"name": "Lebensraub", "text": "Jeder Schlag mit Treffer heilt 1,5 LP"},
+		{"name": "Hammerfaust", "text": "Vierter Schlag: Hammerfaust rundum"},
+	]},
+	"axe": {"name": "Wurfaxt", "icon": "axe", "signature": "",
+		"intro": "Fliegt im Bogen, durchschlägt Gegner und kehrt zurück", "steps": [
 		{"name": "Wurfarm", "text": "Mehr Schaden, fliegt weiter"},
 		{"name": "Zweite Axt", "text": "+1 Axt je Wurf"},
 		{"name": "Schnelle Hand", "text": "Mehr Schaden, wirft schneller"},
 		{"name": "Axtsturm", "text": "+1 Axt je Wurf"},
+		{"name": "Riesenaxt", "text": "+40 % Schaden, fliegt noch weiter"},
 	]},
-	"sword": {"name": "Schwert-Wirbel", "icon": "sword", "kind": "extra", "steps": [
-		{"name": "Schwert-Wirbel", "text": "Rundumhieb alle 2,5 s mit Rückstoß"},
+	"sword": {"name": "Schwert-Wirbel", "icon": "sword", "signature": "",
+		"intro": "Rundumhieb alle 2,5 s mit Rückstoß", "steps": [
 		{"name": "Scharfe Klinge", "text": "Mehr Schaden, wirbelt öfter"},
 		{"name": "Lange Klinge", "text": "Wirbel 25 % größer"},
 		{"name": "Klingentanz", "text": "Mehr Schaden, wirbelt öfter"},
 		{"name": "Doppelwirbel", "text": "Jeder Wirbel dreht zweimal"},
+		{"name": "Klingensturm", "text": "Wirbel 20 % größer, +30 % Schaden"},
 	]},
-	"grenade": {"name": "Granate", "icon": "grenade", "kind": "extra", "steps": [
-		{"name": "Granate", "text": "Wurf in die Gruppe, Explosion mit Rückstoß"},
+	"grenade": {"name": "Granate", "icon": "grenade", "signature": "",
+		"intro": "Wurf in die Gruppe, Explosion mit Rückstoß", "steps": [
 		{"name": "Mehr Pulver", "text": "Mehr Schaden, wirft schneller"},
 		{"name": "Große Ladung", "text": "Explosion 25 % größer"},
 		{"name": "Zünder", "text": "Mehr Schaden, wirft schneller"},
 		{"name": "Splitterhagel", "text": "+1 Granate je Wurf"},
+		{"name": "Streubombe", "text": "+1 Granate je Wurf"},
 	]},
 }
-const EXTRA_WEAPONS := ["axe", "sword", "grenade"]
 
 const RELICS := [
-	{"id": "pulverhorn", "name": "Pulverhorn", "text": "Nachladen 15 % schneller", "rarity": "common", "icon": "horn"},
+	{"id": "pulverhorn", "name": "Pulverhorn", "text": "Schrotflinte lädt 15 % schneller nach", "rarity": "common", "icon": "horn", "needs": "shotgun"},
 	{"id": "feldflasche", "name": "Feldflasche", "text": "+0,5 LP je Sekunde", "rarity": "common", "icon": "flask"},
 	{"id": "lockstein", "name": "Lockstein", "text": "+40 % Sammelradius", "rarity": "common", "icon": "magnet"},
 	{"id": "dornenweste", "name": "Dornenweste", "text": "Wer dich trifft, erleidet 20 Schaden", "rarity": "uncommon", "icon": "thorns"},
 	{"id": "gluecksmuenze", "name": "Glücksmünze", "text": "+50 % Gold und +1 Glück", "rarity": "uncommon", "icon": "coin"},
 	{"id": "siebenmeilenstiefel", "name": "Siebenmeilenstiefel", "text": "Dash lädt 20 % schneller", "rarity": "rare", "icon": "boot"},
 	{"id": "jagdtrophaee", "name": "Jagdtrophäe", "text": "Jeder 25. Kill heilt 8 LP", "rarity": "rare", "icon": "trophy"},
-	{"id": "bleihagel", "name": "Bleihagel", "text": "+2 Kugeln je Schuss", "rarity": "epic", "icon": "shells"},
-	{"id": "patronengurt", "name": "Patronengurt", "text": "+1 Schuss im Magazin", "rarity": "epic", "icon": "belt"},
+	{"id": "kriegstrommel", "name": "Kriegstrommel", "text": "Alle Waffen greifen 12 % schneller an", "rarity": "rare", "icon": "clock"},
+	{"id": "bleihagel", "name": "Bleihagel", "text": "Schrotflinte: +2 Kugeln je Schuss", "rarity": "epic", "icon": "shells", "needs": "shotgun"},
+	{"id": "patronengurt", "name": "Patronengurt", "text": "Schrotflinte: +1 Schuss im Magazin", "rarity": "epic", "icon": "belt", "needs": "shotgun"},
 	{"id": "ahnenamulett", "name": "Ahnenamulett", "text": "+25 % Schaden und +25 Max-LP", "rarity": "legendary", "icon": "amulet"},
 ]
 
 var ranks: Dictionary = {}
 var units: Dictionary = {}
-var shotgun_rank := 0
 ## The hero's own weapon (kept over reset()); owned weapons in pick order.
 var start_weapon := "shotgun"
 var weapons: Array[String] = ["shotgun"]
-## Ranks / power units of all weapons but the shotgun (shotgun_rank).
-var weapon_ranks: Dictionary = {}
-var weapon_units: Dictionary = {}
+## Level (1..MAX_LEVEL) and power units of every owned weapon.
+var weapon_ranks: Dictionary = {"shotgun": 1}
+var weapon_units: Dictionary = {"shotgun": 1.0}
+## Weapons switched off in the menu's Arsenal (kept over reset()).
+var disabled: Array = []
 var relics: Dictionary = {}
 var picks: Array[Dictionary] = []
 var rerolls := REROLLS_PER_RUN
@@ -159,11 +165,10 @@ func reset(seed_value: int = 20202) -> void:
 	units.clear()
 	relics.clear()
 	picks.clear()
-	shotgun_rank = 0
+	weapons.clear()
 	weapon_ranks.clear()
 	weapon_units.clear()
-	weapons.clear()
-	weapons.append(start_weapon)
+	_own_start_weapon()
 	rerolls = REROLLS_PER_RUN
 	chests_bought = 0
 	rng.seed = seed_value
@@ -247,50 +252,94 @@ static func weapon_def(id: String) -> Dictionary:
 	return WEAPONS.get(id, {})
 
 
-## The hero's own weapon: owned from the start, the first of `weapons`.
+## Arsenal list for the menu: [{id, name, icon, text, signature}] in
+## WEAPON_ORDER (signature: hero id that alone can carry it, else "").
+static func arsenal_catalog() -> Array:
+	var out: Array = []
+	for id in WEAPON_ORDER:
+		var d: Dictionary = WEAPONS[id]
+		out.append({"id": id, "name": d.name, "icon": d.icon, "text": d.intro, "signature": d.signature})
+	return out
+
+
+## The hero's own weapon: owned from the start (level 1, power 1), the first
+## of `weapons`. Called when the hero changes (a new run follows): the
+## arsenal starts over with that weapon alone.
 func set_start_weapon(id: String) -> void:
 	start_weapon = id if WEAPONS.has(id) else "shotgun"
-	var extra := weapons.filter(func(w): return EXTRA_WEAPONS.has(w))
 	weapons.clear()
-	weapons.append(start_weapon)
-	for w in extra:
-		weapons.append(String(w))
+	weapon_ranks.clear()
+	weapon_units.clear()
+	_own_start_weapon()
 	_cache.clear()
+
+
+func _own_start_weapon() -> void:
+	if not weapons.has(start_weapon):
+		weapons.push_front(start_weapon)
+	weapon_ranks[start_weapon] = maxi(1, int(weapon_ranks.get(start_weapon, 0)))
+	weapon_units[start_weapon] = maxf(1.0, float(weapon_units.get(start_weapon, 0.0)))
+
+
+## Weapons switched off in the Arsenal (the start weapon is always carried).
+func set_disabled(ids: Array) -> void:
+	disabled.clear()
+	for id in ids:
+		disabled.append(String(id))
+
+
+## May this run deal `id` as a new weapon? Not switched off, and signature
+## weapons only for their own hero (= as start weapon).
+func may_take(id: String) -> bool:
+	if not WEAPONS.has(id):
+		return false
+	if id == start_weapon:
+		return true
+	return not disabled.has(id) and String(WEAPONS[id].signature) == ""
 
 
 func has_weapon(id: String) -> bool:
 	return weapons.has(id)
 
 
-## Rank 0..5 (hero weapons start at 0, extras are 1 once taken).
+## Level 1..MAX_LEVEL of an owned weapon, 0 when not owned.
 func weapon_rank(id: String) -> int:
-	if id == "shotgun":
-		return shotgun_rank
-	return int(weapon_ranks.get(id, 0))
+	return int(weapon_ranks.get(id, 0)) if has_weapon(id) else 0
 
 
-## Sum of the rarity factors picked for an extra weapon (rank for tracks).
+## Sum of the rarity factors picked for a weapon (0 when not owned).
 func weapon_power(id: String) -> float:
-	if String(weapon_def(id).get("kind", "")) == "extra":
-		return float(weapon_units.get(id, float(weapon_rank(id))))
-	return float(weapon_rank(id))
+	return float(weapon_units.get(id, float(weapon_rank(id)))) if has_weapon(id) else 0.0
 
 
 func free_weapon_slots() -> int:
 	return maxi(0, WEAPON_SLOTS - weapons.size())
 
 
-## Extra weapons a card can be dealt for: new ones while a slot is free,
-## owned ones below the top rank.
+## Weapons a card can be dealt for: owned ones below MAX_LEVEL, new ones
+## (may_take) while a slot is free.
 func weapon_candidates() -> Array:
 	var out: Array = []
-	for id in EXTRA_WEAPONS:
+	for id in WEAPON_ORDER:
 		if has_weapon(id):
-			if weapon_rank(id) < MAX_RANK:
+			if weapon_rank(id) < MAX_LEVEL:
 				out.append(id)
-		elif free_weapon_slots() > 0:
+		elif free_weapon_slots() > 0 and may_take(id):
 			out.append(id)
 	return out
+
+
+# Takes one id out of `pool`, owned weapons weighted OWNED_WEIGHT.
+func _pop_weapon(pool: Array) -> String:
+	var total := 0.0
+	for id in pool:
+		total += OWNED_WEIGHT if has_weapon(String(id)) else 1.0
+	var roll := rng.randf() * total
+	for index in pool.size():
+		roll -= OWNED_WEIGHT if has_weapon(String(pool[index])) else 1.0
+		if roll <= 0.0:
+			return String(pool.pop_at(index))
+	return String(pool.pop_back())
 
 
 ## Combined effect for the hero / shotgun (see the header).
@@ -302,21 +351,22 @@ func stat(id: String) -> float:
 		"damage_mult":
 			value = (1.0 + amount("damage")) * (1.25 if stacks("ahnenamulett") > 0 else 1.0)
 		"fire_rate_mult":
-			value = 1.0 + amount("firerate")
+			value = (1.0 + amount("firerate")) * (1.0 + 0.12 * stacks("kriegstrommel"))
 		"reload_mult":
-			value = (1.0 + amount("firerate")) * (1.0 + 0.15 * stacks("pulverhorn"))
+			value = stat("fire_rate_mult") * (1.0 + 0.15 * stacks("pulverhorn"))
+		# Shotgun steps (levels 2..6) and its relics.
 		"range_mult":
-			value = 1.0 + amount("range") + (0.25 if shotgun_rank >= 5 else 0.0)
+			value = 1.0 + amount("range") + (0.25 if weapon_rank("shotgun") >= 6 else 0.0)
 		"fan_mult":
-			value = 0.7 if shotgun_rank >= 5 else 1.0
+			value = 0.7 if weapon_rank("shotgun") >= 6 else 1.0
 		"pellets_bonus":
-			value = (1.0 if shotgun_rank >= 1 else 0.0) + 2.0 * stacks("bleihagel")
+			value = (1.0 if weapon_rank("shotgun") >= 2 else 0.0) + 2.0 * stacks("bleihagel")
 		"pierce":
-			value = 1.0 if shotgun_rank >= 2 else 0.0
+			value = 1.0 if weapon_rank("shotgun") >= 3 else 0.0
 		"knockback_mult":
-			value = 1.5 if shotgun_rank >= 3 else 1.0
+			value = 1.5 if weapon_rank("shotgun") >= 4 else 1.0
 		"mag_bonus":
-			value = (1.0 if shotgun_rank >= 4 else 0.0) + float(stacks("patronengurt"))
+			value = (1.0 if weapon_rank("shotgun") >= 5 else 0.0) + float(stacks("patronengurt"))
 		"crit":
 			value = minf(0.75, amount("crit"))
 		"speed_mult":
@@ -403,28 +453,27 @@ func relic_candidates() -> Array:
 		var s := stacks(entry.id)
 		if s >= relic_limit(entry.id) or (full and s <= 0):
 			continue
+		if String(entry.get("needs", "")) != "" and not has_weapon(String(entry.needs)):
+			continue
 		out.append(entry.id)
 	return out
 
 
-## Level-up: three different cards (stats, the hero weapon's track, extra
-## weapons: NEUE WAFFE while a slot is free, else rank-ups).
+## Level-up: three different cards - weapons (upgrades of owned ones, NEUE
+## WAFFE while a slot is free) and stats.
 func roll_level_offers(count: int = CHOICES) -> Array:
 	var offers: Array = []
 	var pool := stat_candidates()
-	var own_open := weapon_rank(start_weapon) < MAX_RANK
-	if own_open and rng.randf() < SHOTGUN_SHARE:
-		offers.append(own_weapon_entry(roll_rarity()))
-	var extras := weapon_candidates()
-	if not extras.is_empty() and rng.randf() < EXTRA_SHARE:
-		offers.append(weapon_entry(String(extras.pop_at(rng.randi_range(0, extras.size() - 1))), roll_rarity()))
+	var arms := weapon_candidates()
+	if not arms.is_empty() and rng.randf() < WEAPON_SHARE:
+		offers.append(weapon_entry(_pop_weapon(arms), roll_rarity()))
+		if not arms.is_empty() and rng.randf() < SECOND_WEAPON_SHARE:
+			offers.append(weapon_entry(_pop_weapon(arms), roll_rarity()))
 	while offers.size() < count and not pool.is_empty():
 		var id: String = pool.pop_at(rng.randi_range(0, pool.size() - 1))
 		offers.append(stat_entry(id, roll_rarity()))
-	if offers.size() < count and own_open and not _has_id(offers, start_weapon):
-		offers.append(own_weapon_entry(roll_rarity()))
-	while offers.size() < count and not extras.is_empty():
-		offers.append(weapon_entry(String(extras.pop_at(rng.randi_range(0, extras.size() - 1))), roll_rarity()))
+	while offers.size() < count and not arms.is_empty():
+		offers.append(weapon_entry(_pop_weapon(arms), roll_rarity()))
 	if offers.is_empty():
 		offers.append(gold_entry())
 	_shuffle(offers)
@@ -484,55 +533,34 @@ func stat_entry(id: String, rarity: String) -> Dictionary:
 		"text": "%s → %s %s" % [format_value(id, now), format_value(id, next), d.label]}
 
 
-func _shotgun_entry(rarity: String) -> Dictionary:
-	var to := mini(MAX_RANK, shotgun_rank + int(RANK_GAIN.get(rarity, 1)))
-	var names := PackedStringArray()
-	var texts := PackedStringArray()
-	for index in range(shotgun_rank, to):
-		names.append(SHOTGUN_STEPS[index].name)
-		texts.append(SHOTGUN_STEPS[index].text)
-	return {"type": "shotgun", "id": "shotgun", "name": SHOTGUN_NAME, "rarity": rarity, "icon": "shotgun",
-		"from": shotgun_rank, "to": to, "label": " · ".join(names), "text": " · ".join(texts)}
-
-
-## Track card of the hero's own weapon (shotgun card for Brann).
+## Upgrade card of the hero's own weapon.
 func own_weapon_entry(rarity: String) -> Dictionary:
-	if start_weapon == "shotgun":
-		return _shotgun_entry(rarity)
 	return weapon_entry(start_weapon, rarity)
 
 
-## Weapon card: track weapons jump ranks by rarity (like the shotgun); extras
-## are NEUE WAFFE (type "new_weapon", 0 -> 1) or a rank-up (+1 rank, power +
-## rarity factor).
+## Weapon card, the same for every weapon: NEUE WAFFE (type "new_weapon",
+## level 0 -> 1, intro text) or an upgrade (type "weapon", level +1 with the
+## next step); both add the rarity factor to the weapon's power.
 func weapon_entry(id: String, rarity: String) -> Dictionary:
-	if id == "shotgun":
-		return _shotgun_entry(rarity)
 	var d := weapon_def(id)
-	var steps: Array = d.steps
-	var track := String(d.kind) == "track"
-	var from := weapon_rank(id) if track or has_weapon(id) else 0
-	var to := mini(MAX_RANK, from + (int(RANK_GAIN.get(rarity, 1)) if track else 1))
-	var names := PackedStringArray()
-	var texts := PackedStringArray()
-	for index in range(from, to):
-		names.append(String(steps[index].name))
-		texts.append(String(steps[index].text))
-	var fresh := not track and not has_weapon(id)
-	var text := " · ".join(texts)
-	if fresh:
-		text = String(steps[0].text)
-	if not track and not fresh:
-		var now := weapon_power(id)
-		var next := now + float(RARITY_FACTOR.get(rarity, 1.0))
-		text += " · Kraft ×%s → ×%s" % [_num(power_factor(now)), _num(power_factor(next))]
-	elif fresh and rarity != "common":
-		text += " · Kraft ×%s" % _num(power_factor(float(RARITY_FACTOR.get(rarity, 1.0))))
+	var fresh := not has_weapon(id)
+	var from := weapon_rank(id)
+	var to := mini(MAX_LEVEL, from + 1)
+	var now := weapon_power(id)
+	var next := now + float(RARITY_FACTOR.get(rarity, 1.0))
+	var label := "Neue Waffe"
+	var text := String(d.intro)
+	if not fresh:
+		var step: Dictionary = d.steps[clampi(from - 1, 0, d.steps.size() - 1)]
+		label = String(step.name)
+		text = "%s · Kraft ×%s → ×%s" % [step.text, _num(power_factor(now)), _num(power_factor(next))]
+	elif rarity != "common":
+		text += " · Kraft ×%s" % _num(power_factor(next))
 	return {"type": "new_weapon" if fresh else "weapon", "id": id, "name": d.name, "rarity": rarity, "icon": d.icon,
-		"from": from, "to": to, "label": " · ".join(names), "text": text}
+		"from": from, "to": to, "label": label, "text": text}
 
 
-## Damage factor of an extra weapon at `units` power (1 unit = x1, 5 = x2).
+## Damage factor of a weapon at `units` power (1 unit = x1, 5 = x2, 6 = x2,25).
 static func power_factor(units_value: float) -> float:
 	return 0.75 + 0.25 * maxf(1.0, units_value)
 
@@ -582,24 +610,18 @@ func apply(entry: Dictionary, source: String = "level", time: float = 0.0) -> in
 			var before := units_of(id)
 			ranks[id] = mini(MAX_RANK, rank(id) + 1)
 			units[id] = before + float(RARITY_FACTOR.get(String(entry.rarity), 1.0))
-		"shotgun":
-			shotgun_rank = mini(MAX_RANK, shotgun_rank + int(RANK_GAIN.get(String(entry.rarity), 1)))
 		"weapon", "new_weapon":
 			var wid := String(entry.id)
-			if wid == "shotgun":
-				shotgun_rank = mini(MAX_RANK, shotgun_rank + int(RANK_GAIN.get(String(entry.rarity), 1)))
-			elif String(weapon_def(wid).get("kind", "")) == "track":
-				weapon_ranks[wid] = mini(MAX_RANK, weapon_rank(wid) + int(RANK_GAIN.get(String(entry.rarity), 1)))
-			elif not weapon_def(wid).is_empty():
-				if not has_weapon(wid):
-					if free_weapon_slots() <= 0:
-						return 0
-					weapons.append(wid)
-					weapon_ranks.erase(wid)
-					weapon_units.erase(wid)
-				var before_units := weapon_power(wid) if weapon_rank(wid) > 0 else 0.0
-				weapon_ranks[wid] = mini(MAX_RANK, weapon_rank(wid) + 1)
-				weapon_units[wid] = before_units + float(RARITY_FACTOR.get(String(entry.rarity), 1.0))
+			if weapon_def(wid).is_empty():
+				return 0
+			if not has_weapon(wid):
+				if free_weapon_slots() <= 0 or not may_take(wid):
+					return 0
+				weapons.append(wid)
+				weapon_ranks[wid] = 0
+				weapon_units[wid] = 0.0
+			weapon_ranks[wid] = mini(MAX_LEVEL, weapon_rank(wid) + 1)
+			weapon_units[wid] = weapon_power(wid) + float(RARITY_FACTOR.get(String(entry.rarity), 1.0))
 		"relic":
 			var rid := String(entry.id)
 			relics[rid] = mini(relic_limit(rid), stacks(rid) + 1)
@@ -631,7 +653,7 @@ func chest_price() -> int:
 
 
 ## Build overview for the result: [{"type", "id", "name", "icon", "rank", "max", "rarity"}]
-## (stats in pick order, the shotgun track, relics), best rarity picked per item.
+## (stats, weapons with their level, relics in pick order), best rarity per item.
 func build_summary() -> Array:
 	var out: Array = []
 	var seen := {}
@@ -654,12 +676,9 @@ func build_summary() -> Array:
 			"stat":
 				item["rank"] = rank(String(item.id))
 				item["max"] = MAX_RANK
-			"shotgun":
-				item["rank"] = shotgun_rank
-				item["max"] = MAX_RANK
 			"weapon":
 				item["rank"] = weapon_rank(String(item.id))
-				item["max"] = MAX_RANK
+				item["max"] = MAX_LEVEL
 			"relic":
 				item["rank"] = stacks(String(item.id))
 				item["max"] = relic_limit(String(item.id))

@@ -466,7 +466,11 @@ func _build_chip(c: CanvasItem, rect: Rect2, item: Dictionary) -> void:
 	var x0 := pc.x + plate * 0.5 + 10.0
 	var width := rect.end.x - 10.0 - x0
 	Kit.text_outlined(c, Vector2(x0, rect.position.y + 24.0), String(item.name), UiStyle.T_LABEL, Color.WHITE, -1, -1, null, Kit.LEFT | Kit.MIDDLE, width)
-	var rank_text := ("RANG %d" % int(item.rank)) if String(item.type) != "relic" else ("×%d" % int(item.rank))
+	var rank_text := "×%d" % int(item.rank)
+	if String(item.type) == "stat":
+		rank_text = "RANG %d" % int(item.rank)
+	elif String(item.type) == "weapon":
+		rank_text = "STUFE %d" % int(item.rank)
 	if String(item.type) != "relic" and int(item.rank) >= int(item.max):
 		rank_text = "MAX"
 	Kit.text_outlined(c, Vector2(x0, rect.position.y + 54.0), rank_text, UiStyle.T_LABEL, t["light"], -1, -1, null, Kit.LEFT | Kit.MIDDLE, width)

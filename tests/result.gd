@@ -43,7 +43,7 @@ func _run() -> void:
 			progression.choose(0)
 	check(run.kills >= 3, "kills counted (%d)" % run.kills)
 	# Picks through the real choice: two level-ups and a cocoon.
-	for pick in [progress.stat_entry("damage", "rare"), progress._shotgun_entry("epic"), progress.stat_entry("damage", "common")]:
+	for pick in [progress.stat_entry("damage", "rare"), progress.weapon_entry("shotgun", "epic"), progress.stat_entry("damage", "common")]:
 		run.add_xp(float(run.xp_needed(run.level)))
 		battle.tick(DT)
 		progression.offers = [pick]
@@ -56,7 +56,7 @@ func _run() -> void:
 	for item in build:
 		by_id[String(item.id)] = item
 	check(by_id.has("damage") and int(by_id.damage.rank) == 2 and String(by_id.damage.rarity) == "rare", "Schaden rank 2, best rarity rare")
-	check(by_id.has("shotgun") and int(by_id.shotgun.rank) == 2, "Schrotflinte rank 2 (epic)")
+	check(by_id.has("shotgun") and String(by_id.shotgun.type) == "weapon" and int(by_id.shotgun.rank) == 2, "Schrotflinte level 2 (one card, epic)")
 	check(by_id.has("lockstein") and String(by_id.lockstein.type) == "relic" and int(by_id.lockstein.rank) == 1, "relic Lockstein x1")
 	for item in build:
 		check(String(item.get("icon", "")) != "" and String(item.get("name", "")) != "", "build item has icon and name")

@@ -18,6 +18,7 @@ signal pause_changed(on: bool)
 const T := preload("res://scripts/core/tuning.gd")
 const HERO := preload("res://scripts/hero/hero.gd")
 const SHOTGUN := preload("res://scripts/weapons/shotgun.gd")
+const SESSION := preload("res://scripts/core/session.gd")
 const HORDE := preload("res://scripts/enemies/horde.gd")
 const DIRECTOR := preload("res://scripts/enemies/director.gd")
 const EFFECTS := preload("res://scripts/combat/effects.gd")
@@ -125,6 +126,7 @@ func _ready() -> void:
 	loot = progression.loot
 	chests = progression.chests
 	progress = progression.progress
+	progress.set_disabled(_disabled_weapons())
 	progress.set_start_weapon(String(shotgun.id))
 	for weapon in weapons:
 		weapon.run = run
@@ -143,7 +145,6 @@ func _connect() -> void:
 	hero.hurt.connect(_on_hero_hurt)
 	hero.died.connect(_on_hero_died)
 	hero.dashed.connect(func(_dir: Vector3) -> void: sfx.play("dash"))
-	_connect_own_weapon()
 	horde.enemy_killed.connect(_on_enemy_killed)
 	horde.enemy_damaged.connect(_on_enemy_damaged)
 	horde.windup_started.connect(_on_windup)
@@ -240,9 +241,14 @@ func set_hero(id: String) -> void:
 		remove_child(weapon)
 	weapons.clear()
 	shotgun = _make_weapon(String(HEROES.get_hero(hero.hero_id).weapon))
-	_connect_own_weapon()
 	progress.set_start_weapon(String(shotgun.id))
 	restart()
+
+
+## Weapons switched off in the menu's Arsenal (Session.config.disabled_weapons).
+func _disabled_weapons() -> Array:
+	var value: Variant = SESSION.config.get("disabled_weapons", [])
+	return value if value is Array else []
 
 
 ## Weapon nodes follow progress.weapons: missing ones are created (NEUE
@@ -284,15 +290,14 @@ func _make_weapon(id: String) -> Node:
 	add_child(weapon)
 	weapons.append(weapon)
 	weapon.hitstop_requested.connect(_on_hitstop)
+	# Shotgun feedback (camera kick, shot and reload sounds) for every shotgun,
+	# own or taken as a NEUE WAFFE.
+	if weapon.has_signal("fired"):
+		weapon.fired.connect(_on_fired)
+		weapon.reload_started.connect(func() -> void: sfx.play("open"))
+		weapon.shells_ejected.connect(func() -> void: sfx.play("shell"))
+		weapon.reload_finished.connect(func() -> void: sfx.play("close"))
 	return weapon
-
-
-func _connect_own_weapon() -> void:
-	if shotgun.has_signal("fired"):
-		shotgun.fired.connect(_on_fired)
-		shotgun.reload_started.connect(func() -> void: sfx.play("open"))
-		shotgun.shells_ejected.connect(func() -> void: sfx.play("shell"))
-		shotgun.reload_finished.connect(func() -> void: sfx.play("close"))
 
 
 func _on_hitstop(frames: int) -> void:

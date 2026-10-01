@@ -60,28 +60,31 @@ func _unit() -> void:
 		for entry in p.roll_level_offers():
 			if entry.type == "stat":
 				check(p.rank(String(entry.id)) > 0, "no 7th stat in a level offer")
-	# Level offers: three distinct cards; the shotgun track shows up.
+	# Level offers: three distinct cards; weapon cards (upgrade or new) show up.
 	var q: RefCounted = PROGRESS.new()
-	var shotgun_seen := 0
+	var weapon_seen := 0
 	for k in 60:
 		var offers: Array = q.roll_level_offers()
 		check(offers.size() == 3, "three level cards")
 		var ids := {}
 		for entry in offers:
 			ids[String(entry.type) + String(entry.id)] = true
-			if entry.type == "shotgun":
-				shotgun_seen += 1
+			if String(entry.type) in ["weapon", "new_weapon"]:
+				weapon_seen += 1
 			check(entry.type != "relic", "level-ups never offer relics")
 		check(ids.size() == 3, "level cards are distinct")
-	check(shotgun_seen >= 20, "shotgun track offered often (%d / 60)" % shotgun_seen)
-	# Shotgun track in order; epic = +2 ranks.
+	check(weapon_seen >= 30, "weapon cards offered often (%d in 60 offers)" % weapon_seen)
+	# Shotgun levels in order: +1 level per card, rarity only adds power.
 	var s: RefCounted = PROGRESS.new()
-	s.apply(s._shotgun_entry("common"))
-	check(s.shotgun_rank == 1 and s.stat("pellets_bonus") == 1.0 and s.stat("pierce") == 0.0, "rank 1: +1 pellet")
-	s.apply(s._shotgun_entry("epic"))
-	check(s.shotgun_rank == 3 and s.stat("pierce") == 1.0 and is_equal_approx(s.stat("knockback_mult"), 1.5), "epic: +2 ranks (pierce, knockback)")
-	s.apply(s._shotgun_entry("legendary"))
-	check(s.shotgun_rank == 5 and s.stat("mag_bonus") == 1.0 and is_equal_approx(s.stat("fan_mult"), 0.7) and is_equal_approx(s.stat("range_mult"), 1.25), "rank 5: magazine, tight fan, range")
+	check(s.weapon_rank("shotgun") == 1 and is_equal_approx(s.weapon_power("shotgun"), 1.0), "start: shotgun level 1, power 1")
+	s.apply(s.weapon_entry("shotgun", "common"))
+	check(s.weapon_rank("shotgun") == 2 and s.stat("pellets_bonus") == 1.0 and s.stat("pierce") == 0.0, "level 2: +1 pellet")
+	s.apply(s.weapon_entry("shotgun", "epic"))
+	check(s.weapon_rank("shotgun") == 3 and s.stat("pierce") == 1.0 and is_equal_approx(s.stat("knockback_mult"), 1.0) and is_equal_approx(s.weapon_power("shotgun"), 4.0), "epic: one level (pierce), power +2")
+	for k in 3:
+		s.apply(s.weapon_entry("shotgun", "common"))
+	check(s.weapon_rank("shotgun") == 6 and is_equal_approx(s.stat("knockback_mult"), 1.5) and s.stat("mag_bonus") == 1.0 and is_equal_approx(s.stat("fan_mult"), 0.7) and is_equal_approx(s.stat("range_mult"), 1.25), "level 6: knockback, magazine, tight fan, range")
+	check(not s.weapon_candidates().has("shotgun"), "maxed shotgun no longer offered")
 	# Rarity rolls: luck shifts the odds, floors hold.
 	var low: Dictionary = PROGRESS.rarity_chances(0.0)
 	var lucky: Dictionary = PROGRESS.rarity_chances(5.0)
@@ -119,41 +122,41 @@ func _scene(battle: Node) -> void:
 	gun.fire(Vector3.FORWARD)
 	check(gun.last_hits.has(line[0]) and not gun.last_hits.has(line[1]), "no pierce: the rear Wichtel is safe")
 	check(gun.last_pellets.size() == T.GUN_PELLETS, "7 pellets fired")
-	# Choice applies: a level-up offering the shotgun track (rank 1 -> 2 at once: rare = +1).
+	# Choice applies: a level-up offering the shotgun upgrade (level 1 -> 2).
 	battle.run.add_xp(60.0)
 	battle.tick(DT)
 	check(battle.paused(), "level choice open")
-	progression.offers = [progress._shotgun_entry("common"), progress.stat_entry("damage", "common"), progress.stat_entry("maxhp", "rare")]
+	progression.offers = [progress.weapon_entry("shotgun", "common"), progress.stat_entry("damage", "common"), progress.stat_entry("maxhp", "rare")]
 	progression.choice.offers = progression.offers
 	progression.choose(0)
-	check(progress.shotgun_rank == 1 and gun.pellet_count() == T.GUN_PELLETS + 1, "shotgun card: +1 pellet in the gun (%d)" % gun.pellet_count())
+	check(progress.weapon_rank("shotgun") == 2 and gun.pellet_count() == T.GUN_PELLETS + 1, "shotgun card: +1 pellet in the gun (%d)" % gun.pellet_count())
 	line = _line(battle)
 	gun.reset()
 	gun.fire(Vector3.FORWARD)
 	check(gun.last_pellets.size() == T.GUN_PELLETS + 1, "8 pellets fired")
-	# Rank 2: pierce - the pellet goes on into the rear Wichtel.
-	progress.apply(progress._shotgun_entry("common"))
+	# Level 3: pierce - the pellet goes on into the rear Wichtel.
+	progress.apply(progress.weapon_entry("shotgun", "common"))
 	line = _line(battle)
 	gun.reset()
 	gun.fire(Vector3.FORWARD)
 	check(gun.last_hits.has(line[0]) and gun.last_hits.has(line[1]), "pierce: front and rear Wichtel hit")
-	# Rank 3: knockback x1.5 on light enemies.
-	progress.apply(progress._shotgun_entry("common"))
+	# Level 4: knockback x1.5 on light enemies.
+	progress.apply(progress.weapon_entry("shotgun", "common"))
 	line = _line(battle)
 	gun.reset()
 	gun.fire(Vector3.FORWARD)
 	var hit: Dictionary = gun.last_hits.get(line[0], {})
 	check(is_equal_approx(float(hit.get("knock", -1.0)), T.KNOCK_LIGHT * 1.5), "knockback x1.5 (%.2f)" % float(hit.get("knock", -1.0)))
-	# Rank 4: a third shell.
-	progress.apply(progress._shotgun_entry("common"))
+	# Level 5: a third shell.
+	progress.apply(progress.weapon_entry("shotgun", "common"))
 	gun.reset()
 	check(gun.max_shells() == 3 and gun.shells == 3, "magazine: 3 shells")
-	# Rank 5: tighter fan, longer reach.
+	# Level 6: tighter fan, longer reach.
 	_line(battle)
 	gun.fire(Vector3.FORWARD)
 	var wide: float = _fan_width(gun)
 	gun.reset()
-	progress.apply(progress._shotgun_entry("common"))
+	progress.apply(progress.weapon_entry("shotgun", "common"))
 	_line(battle)
 	gun.reset()
 	gun.fire(Vector3.FORWARD)
@@ -167,6 +170,10 @@ func _scene(battle: Node) -> void:
 	gun.fire(Vector3.FORWARD)
 	var base: float = float(gun.last_pellets[0].damage) if gun.last_pellets[0].index >= 0 else 0.0
 	progress.apply(progress.stat_entry("damage", "epic"))
+	# A fresh Brocken (the first shot may have killed the old one).
+	horde.clear()
+	lone = horde.spawn(T.Kind.BROCKEN, hero.position + Vector3(0, 0, -2.5))
+	horde._appear[lone] = 1.0
 	gun.reset()
 	gun.fire(Vector3.FORWARD)
 	var boosted: float = float(gun.last_pellets[0].damage)

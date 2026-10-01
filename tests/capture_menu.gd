@@ -5,6 +5,7 @@ extends SceneTree
 #   preview_menu_heroes.png    - hero choice (Brine chosen, BALD tiles)
 #   preview_menu_settings.png  - volumes, vibration, damage numbers
 #   preview_menu_stats.png     - runs in total, best run per hero
+#   preview_menu_arsenal.png   - weapon pool (Brann: STARTWAFFE, NUR BRINE, one off)
 #   preview_menu_pause.png     - pause panel over a fight with a small build
 #   preview_menu_result.png    - result with MENÜ next to NOCHMAL
 # Run with a window (never --headless): tools/capture.ps1 -Only menu
@@ -43,6 +44,13 @@ func _capture() -> void:
 	menu.show_screen("stats")
 	await _settle(4)
 	await _save("preview_menu_stats")
+	menu.choose_hero("brann")
+	SESSION.profile().set_weapon_enabled("grenade", false)
+	menu.show_screen("arsenal")
+	await _settle(4)
+	await _save("preview_menu_arsenal")
+	SESSION.profile().set_weapon_enabled("grenade", true)
+	menu.choose_hero("boxer")
 	menu.show_screen("title")
 	await _settle(4)
 	await _save("preview_menu_title_boxer")

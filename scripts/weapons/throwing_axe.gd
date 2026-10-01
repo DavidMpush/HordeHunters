@@ -6,7 +6,7 @@ extends "res://scripts/weapons/weapon.gd"
 #   the aim, bowing to one side) and comes back to the hero; it spins and goes
 #   through everything (each enemy at most once per pass: out and back). Light enemies are knocked along its flight.
 #   Rank 1 one axe, 2 more damage + reach, 3 two axes, 4 more damage + faster,
-#   5 three axes. Damage x power_factor() (rarity units like stats).
+#   5 three axes, 6 Riesenaxt (+40 % damage, reach). Damage x power_factor().
 
 const COOLDOWN := 1.8
 const AIM_RANGE := 9.0
@@ -55,7 +55,7 @@ func axe_count() -> int:
 
 
 func out_range() -> float:
-	return (OUT_RANGE + (0.8 if rank() >= 2 else 0.0)) * range_mult()
+	return (OUT_RANGE + (0.8 if rank() >= 2 else 0.0) + (0.8 if rank() >= 6 else 0.0)) * range_mult()
 
 
 func cooldown() -> float:
@@ -63,7 +63,7 @@ func cooldown() -> float:
 
 
 func damage() -> float:
-	return DAMAGE * power_factor()
+	return DAMAGE * power_factor() * (1.4 if rank() >= 6 else 1.0)
 
 
 func step(delta: float) -> void:

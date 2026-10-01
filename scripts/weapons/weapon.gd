@@ -4,7 +4,7 @@ extends Node
 #   id / source     catalogue id (progress.gd WEAPONS) and the name damage is
 #                   booked on for the result page (run.damage_by_source)
 #   cooldown        seconds between attacks (cooldown_time(): base / fire rate)
-#   rank()          upgrade rank 0..5 from the build (hero.build.weapon_rank),
+#   rank()          level 1..6 from the build (hero.build.weapon_rank, 0 = not owned),
 #                   rank_override >= 0 wins (tests); power() = rarity units
 #   targeting       nearest_target(range) via horde.nearest_index (boss incl.)
 #   damage          base x hero.stat("damage_mult"), crit doubles
@@ -51,7 +51,7 @@ func _stat(stat_id: String) -> float:
 	return 1.0 if stat_id.ends_with("_mult") else 0.0
 
 
-## Upgrade rank 0..5.
+## Level 1..6 (1 = just taken), 0 without a build entry.
 func rank() -> int:
 	if rank_override >= 0:
 		return rank_override
@@ -71,7 +71,7 @@ func power() -> float:
 	return float(rank())
 
 
-## Damage factor of an extra weapon from its power (1 unit = x1, 5 = x2;
+## Damage factor of the weapon from its power (1 unit = x1, 5 = x2;
 ## same formula as progress.gd power_factor).
 func power_factor() -> float:
 	return 0.75 + 0.25 * maxf(1.0, power())

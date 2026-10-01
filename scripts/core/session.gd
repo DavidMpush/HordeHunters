@@ -3,7 +3,9 @@ extends RefCounted
 # Session state across scene changes (stage 3, Teil A §5). A static class (no
 # autoload): preload it and use the static members.
 #   config   run configuration the menu hands to main.tscn:
-#            {hero_id, seed, biome}. Empty = defaults (Brann, main.gd's seed).
+#            {hero_id, seed, biome, disabled_weapons}. Empty = defaults (Brann,
+#            main.gd's seed, every weapon). disabled_weapons: weapon ids
+#            switched off in the Arsenal (profile), read by the battle.
 #            scripts/hero/heroes.gd current_id() reads config.hero_id.
 #   profile  user://profile.json (scripts/core/profile.gd), loaded lazily.
 #            Automated runs (a custom SceneTree, i.e. --script tests and
@@ -72,11 +74,16 @@ static func biome(fallback: String) -> String:
 ## Starts a run of `id` (the menu's SPIELEN): sets config, saves the choice,
 ## switches to main.tscn.
 static func start_run(tree: SceneTree, id: String, seed_value: int = 0, biome_id: String = "") -> void:
-	config = {"hero_id": id, "seed": seed_value, "biome": biome_id}
+	config = run_config(id, seed_value, biome_id)
 	profile().hero_id = id
 	save_profile()
 	if tree != null:
 		tree.change_scene_to_file(MAIN_SCENE)
+
+
+## The run configuration start_run hands to main.tscn.
+static func run_config(id: String, seed_value: int = 0, biome_id: String = "") -> Dictionary:
+	return {"hero_id": id, "seed": seed_value, "biome": biome_id, "disabled_weapons": profile().disabled_weapons.duplicate()}
 
 
 static func to_menu(tree: SceneTree) -> void:

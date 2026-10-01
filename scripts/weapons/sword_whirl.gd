@@ -7,7 +7,8 @@ extends "res://scripts/weapons/weapon.gd"
 #   little, heavy and bosses not). A steel-blue full-circle swipe and the
 #   orbiting blade show the reach.
 #   Rank 1 base, 2 more damage + faster, 3 radius +25 %, 4 more damage +
-#   faster, 5 double spin. Damage x power_factor().
+#   faster, 5 double spin, 6 Klingensturm (radius +20 %, +30 % damage).
+#   Damage x power_factor().
 
 const FX := preload("res://scripts/weapons/weapon_fx.gd")
 
@@ -58,7 +59,7 @@ func reset() -> void:
 
 
 func radius() -> float:
-	return RADIUS * (1.25 if rank() >= 3 else 1.0) * range_mult()
+	return RADIUS * (1.25 if rank() >= 3 else 1.0) * (1.2 if rank() >= 6 else 1.0) * range_mult()
 
 
 func cooldown() -> float:
@@ -67,7 +68,7 @@ func cooldown() -> float:
 
 
 func damage() -> float:
-	return DAMAGE * power_factor()
+	return DAMAGE * power_factor() * (1.3 if rank() >= 6 else 1.0)
 
 
 func step(delta: float) -> void:

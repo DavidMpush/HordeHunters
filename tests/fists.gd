@@ -233,37 +233,37 @@ func _hitstop() -> void:
 
 func _track() -> void:
 	_reset()
-	fists.rank_override = 1
-	check(is_equal_approx(fists.half_angle(0), deg_to_rad(65.0)) and is_equal_approx(fists.half_angle(2), deg_to_rad(100.0)), "rank 1: wider arcs")
 	fists.rank_override = 2
-	check(fists.gap_after(0) < float(FISTS.GAPS[0]) * 0.85, "rank 2: faster combo")
-	# Rank 3: uppercut shockwave reaches an enemy behind the boxer.
+	check(is_equal_approx(fists.half_angle(0), deg_to_rad(65.0)) and is_equal_approx(fists.half_angle(2), deg_to_rad(100.0)), "level 2: wider arcs")
 	fists.rank_override = 3
+	check(fists.gap_after(0) < float(FISTS.GAPS[0]) * 0.85, "level 3: faster combo")
+	# Rank 3: uppercut shockwave reaches an enemy behind the boxer.
+	fists.rank_override = 4
 	var back := _spawn(T.Kind.WICHTEL, Vector3(0, 0, 2.2))
 	fists.aim = Vector3(0, 0, -1)
 	var hp: float = horde.health_of(back)
 	fists.strike(2)
-	check(horde.health_of(back) < hp, "rank 3: shockwave hits behind")
+	check(horde.health_of(back) < hp, "level 4: shockwave hits behind")
 	# Rank 4: life steal on a landed strike.
-	fists.rank_override = 4
+	fists.rank_override = 5
 	hero.health = 50.0
 	fists.aim = Vector3(0, 0, 1)
 	fists.strike(0)
-	check(hero.health > 50.0, "rank 4: life steal (%.1f)" % hero.health)
+	check(hero.health > 50.0, "level 5: life steal (%.1f)" % hero.health)
 	# Rank 5: a fourth strike all round.
-	fists.rank_override = 5
-	check(fists.combo_length() == 4, "rank 5: four strikes")
+	fists.rank_override = 6
+	check(fists.combo_length() == 4, "level 6: four strikes")
 	var behind := _spawn(T.Kind.WICHTEL, Vector3(0, 0, 1.5))
 	fists.aim = Vector3(0, 0, -1)
 	fists.strike(3)
 	check(fists.last_strike.hits.has(behind), "Hammerfaust hits all round")
-	# The level-up track: a fists card raises the build rank.
+	# A fists card raises the build level by one.
 	fists.rank_override = -1
 	var progress: RefCounted = battle.progress
 	var card: Dictionary = progress.own_weapon_entry("epic")
-	check(String(card.type) == "weapon" and String(card.id) == "fists" and int(card.to) == 2, "fists card (epic = +2 ranks)")
+	check(String(card.type) == "weapon" and String(card.id) == "fists" and int(card.to) == 2, "fists card (level 1 -> 2, epic only adds power)")
 	progress.apply(card)
-	check(fists.rank() == 2, "build rank 2 seen by the fists")
+	check(fists.rank() == 2, "build level 2 seen by the fists")
 
 
 func _finish(name: String) -> void:

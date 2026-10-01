@@ -8,6 +8,7 @@ extends SceneTree
 
 const T := preload("res://scripts/core/tuning.gd")
 const PROGRESS := preload("res://scripts/progression/progress.gd")
+const EXTRAS := ["axe", "sword", "grenade"]
 const DT := 1.0 / 60.0
 
 var failures: Array[String] = []
@@ -54,10 +55,10 @@ func _offers() -> void:
 			if String(entry.type) == "new_weapon":
 				fresh += 1
 				check(int(entry.from) == 0 and int(entry.to) == 1, "NEUE WAFFE goes 0 -> 1")
-				check(PROGRESS.EXTRA_WEAPONS.has(String(entry.id)), "only extras are new weapons")
+				check(EXTRAS.has(String(entry.id)), "Brann: new weapons are axe, sword, grenade (never the fists)")
 	check(fresh >= 40, "NEUE WAFFE offered while slots are free (%d)" % fresh)
 	# Fill the slots: shotgun + 3 extras = 4.
-	for id in PROGRESS.EXTRA_WEAPONS:
+	for id in EXTRAS:
 		p.apply(p.weapon_entry(id, "common"))
 	check(p.weapons.size() == PROGRESS.WEAPON_SLOTS and p.free_weapon_slots() == 0, "4 weapons fill the slots")
 	var ups := 0
@@ -66,34 +67,56 @@ func _offers() -> void:
 			check(String(entry.type) != "new_weapon", "no NEUE WAFFE with full slots")
 			if String(entry.type) == "weapon":
 				ups += 1
-				check(p.has_weapon(String(entry.id)), "rank-ups only for owned weapons")
-	check(ups > 20, "rank-ups of extras still offered (%d)" % ups)
-	# A fifth weapon cannot be forced in.
+				check(p.has_weapon(String(entry.id)), "upgrades only for owned weapons")
+	check(ups > 20, "upgrades still offered (%d)" % ups)
+	# A fifth weapon cannot be forced in; the fists stay Brine's.
 	var q: RefCounted = PROGRESS.new()
+	q.apply(q.weapon_entry("fists", "common"))
+	check(not q.has_weapon("fists"), "Brann cannot take the fists")
 	q.set_start_weapon("fists")
 	q.apply(q.weapon_entry("axe", "common"))
 	q.apply(q.weapon_entry("sword", "common"))
+	q.apply(q.weapon_entry("shotgun", "common"))
 	q.apply(q.weapon_entry("grenade", "common"))
-	check(q.weapons == ["fists", "axe", "sword", "grenade"], "boxer build: fists + 3 extras")
-	# Boxer: the own track is the fists, never the shotgun.
+	check(q.weapons == ["fists", "axe", "sword", "shotgun"], "boxer build: fists + 3, no fifth (%s)" % str(q.weapons))
+	# Brine: the shotgun is a normal new weapon, upgraded like every other one.
 	var b: RefCounted = PROGRESS.new()
 	b.set_start_weapon("fists")
 	var own := 0
+	var gun_new := 0
 	for k in 120:
 		for entry in b.roll_level_offers():
-			check(String(entry.type) != "shotgun" and String(entry.id) != "shotgun", "no shotgun card for the boxer")
 			if String(entry.id) == "fists":
 				own += 1
-	check(own >= 30, "fists track offered often (%d / 120)" % own)
+				check(String(entry.type) == "weapon", "fists only as upgrade")
+			if String(entry.id) == "shotgun":
+				gun_new += 1
+				check(String(entry.type) == "new_weapon", "shotgun only as NEUE WAFFE while not owned")
+	check(own >= 25, "fists upgrades offered often (%d / 120)" % own)
+	check(gun_new >= 5, "Brine may take the shotgun (%d / 120)" % gun_new)
+	check(b.relic_candidates().has("bleihagel") == false and b.relic_candidates().has("pulverhorn") == false, "no shotgun relics without the shotgun")
+	b.apply(b.weapon_entry("shotgun", "rare"))
+	check(b.weapon_rank("shotgun") == 1 and is_equal_approx(b.weapon_power("shotgun"), 1.5) and b.relic_candidates().has("bleihagel"), "Brine took the shotgun: level 1, power 1.5, its relics open")
+	var up: Dictionary = b.weapon_entry("shotgun", "common")
+	check(String(up.type) == "weapon" and int(up.to) == 2 and String(up.label) == "+1 Kugel", "shotgun upgrade card for Brine")
 	b.reset(5)
 	check(b.weapons == ["fists"] and b.start_weapon == "fists", "reset keeps the own weapon only")
-	# Rarity like stats: a legendary rank-up adds 3 power units.
+	# Arsenal: switched-off weapons never come as new weapons.
+	var d: RefCounted = PROGRESS.new()
+	d.set_start_weapon("fists")
+	d.set_disabled(["shotgun", "grenade", "fists"])
+	for k in 120:
+		for entry in d.roll_level_offers():
+			check(not (String(entry.id) in ["shotgun", "grenade"]), "disabled weapons are never dealt")
+	d.reset(7)
+	check(d.has_weapon("fists") and d.may_take("fists"), "the start weapon stays even if switched off")
+	# Rarity like stats: a legendary upgrade adds 3 power units.
 	var r: RefCounted = PROGRESS.new()
 	r.apply(r.weapon_entry("axe", "common"))
 	r.apply(r.weapon_entry("axe", "legendary"))
-	check(r.weapon_rank("axe") == 2 and is_equal_approx(r.weapon_power("axe"), 4.0), "rank +1, power + rarity factor (%.1f)" % r.weapon_power("axe"))
+	check(r.weapon_rank("axe") == 2 and is_equal_approx(r.weapon_power("axe"), 4.0), "level +1, power + rarity factor (%.1f)" % r.weapon_power("axe"))
 	var summary: Array = r.build_summary()
-	check(summary.size() == 1 and String(summary[0].type) == "weapon" and int(summary[0].rank) == 2 and String(summary[0].rarity) == "legendary", "build lists the axe once, rank 2, best rarity")
+	check(summary.size() == 1 and String(summary[0].type) == "weapon" and int(summary[0].rank) == 2 and String(summary[0].rarity) == "legendary", "build lists the axe once, level 2, best rarity")
 
 
 # ---------------------------------------------------------------- in the fight

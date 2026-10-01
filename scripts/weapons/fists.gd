@@ -12,9 +12,9 @@ extends "res://scripts/weapons/weapon.gd"
 #   rhythm    every strike has a short wind (WIND s: the fist pulls back), then
 #             the hit frame; the combo restarts after IDLE_RESET s without target.
 #   feedback  white swipe crescents (weapon_fx.gd), sparks and dust on hits.
-# Track (progress.gd FISTS_STEPS, rank 1..5): wider arcs (+-65 / +-100),
-# 25 % faster combo, uppercut shockwave, life steal per landed strike, fourth
-# strike "Hammerfaust" (all round).
+# Levels (progress.gd WEAPONS.fists, 1 = base, 2..6): wider arcs (+-65 /
+# +-100), 25 % faster combo, uppercut shockwave, life steal per landed strike,
+# fourth strike "Hammerfaust" (all round). Damage x power_factor() (rarity).
 
 signal struck(step: int, hits: int, kills: int)
 
@@ -27,7 +27,7 @@ const WIND := 0.07
 const GAPS := [0.24, 0.28, 0.3]
 const RECOVER := 0.9
 const DAMAGE := [10.0, 10.0, 18.0, 18.0]
-## Most enemies one strike can hit (0 = all in the arc); rank 1 adds one.
+## Most enemies one strike can hit (0 = all in the arc); level 2 adds one.
 const MAX_TARGETS := [2, 2, 0, 0]
 const HALF_DEG := [50.0, 50.0, 75.0, 180.0]
 const HALF_DEG_WIDE := [65.0, 65.0, 100.0, 180.0]
@@ -87,15 +87,15 @@ func reach() -> float:
 
 ## Strikes per combo: 3, 4 with Hammerfaust (rank 5).
 func combo_length() -> int:
-	return 4 if rank() >= 5 else 3
+	return 4 if rank() >= 6 else 3
 
 
 func speed_mult() -> float:
-	return _stat("fire_rate_mult") * (1.25 if rank() >= 2 else 1.0)
+	return _stat("fire_rate_mult") * (1.25 if rank() >= 3 else 1.0)
 
 
 func half_angle(step: int) -> float:
-	var table: Array = HALF_DEG_WIDE if rank() >= 1 else HALF_DEG
+	var table: Array = HALF_DEG_WIDE if rank() >= 2 else HALF_DEG
 	return deg_to_rad(float(table[step]))
 
 
@@ -163,7 +163,7 @@ func strike(step: int) -> int:
 	var base := float(DAMAGE[step])
 	var struck_now := enemies_in_arc(at, dir, reach_now, half)
 	# Jab and cross land on the nearest bodies only (a fist hits one or two).
-	var limit := int(MAX_TARGETS[step]) + (1 if rank() >= 1 and int(MAX_TARGETS[step]) > 0 else 0)
+	var limit := int(MAX_TARGETS[step]) + (1 if rank() >= 2 and int(MAX_TARGETS[step]) > 0 else 0)
 	if limit > 0 and struck_now.size() > limit:
 		struck_now.sort_custom(func(a: int, b: int) -> bool:
 			return horde.position_of(a).distance_squared_to(at) < horde.position_of(b).distance_squared_to(at))
@@ -174,7 +174,7 @@ func strike(step: int) -> int:
 		push = push.normalized() if push.length_squared() > 0.0001 else dir
 		# Knock mostly along the punch, a little outwards (fans the crowd open).
 		var along := (dir * 0.6 + push * 0.4).normalized()
-		hits[index] = {"damage": roll_damage(base), "dir": along, "knock": knock_by_mass(index, knock)}
+		hits[index] = {"damage": roll_damage(base * power_factor()), "dir": along, "knock": knock_by_mass(index, knock)}
 		if _fx():
 			effects.hit_sparks(Vector3(p.x, 0.9, p.z), along, 3 if step < 2 else 6)
 			# White impact puff where the fist lands.
@@ -204,7 +204,7 @@ func strike(step: int) -> int:
 			hitstop_requested.emit(HITSTOP_FRAMES)
 		if _fx():
 			effects.dust(at + dir * 0.6, 4 if step == 2 else 6, 0.7)
-		if step == 2 and rank() >= 3:
+		if step == 2 and rank() >= 4:
 			killed += _shockwave(at)
 		if step == 3 and _fx():
 			effects.ring(at, Color(1.0, 0.9, 0.6, 0.8), 0.6, reach_now, 0.3)
@@ -212,7 +212,7 @@ func strike(step: int) -> int:
 		_sound("dash", 1.7 + 0.15 * float(step))
 	if landed > 0:
 		_sound("hit", 1.15 - 0.1 * float(step))
-		if rank() >= 4 and not hero.is_dead():
+		if rank() >= 5 and not hero.is_dead():
 			var before: float = hero.health
 			hero.health = minf(hero.max_health, hero.health + LIFESTEAL)
 			healed += hero.health - before
@@ -234,7 +234,7 @@ func _shockwave(at: Vector3) -> int:
 		var p: Vector3 = horde.position_of(index)
 		var out := Vector3(p.x - at.x, 0.0, p.z - at.z)
 		out = out.normalized() if out.length_squared() > 0.0001 else aim
-		hits[index] = {"damage": roll_damage(SHOCK_DAMAGE), "dir": out, "knock": knock_by_mass(index, [6.0, 3.0, 0.0])}
+		hits[index] = {"damage": roll_damage(SHOCK_DAMAGE * power_factor()), "dir": out, "knock": knock_by_mass(index, [6.0, 3.0, 0.0])}
 	if _fx():
 		effects.ring(at, Color(1.0, 0.95, 0.75, 0.85), 0.5, radius, 0.32)
 		effects.dust(at, 6, 0.8)
