@@ -1,0 +1,14 @@
+[gd_resource type="FontVariation" load_steps=2 format=3]
+
+[ext_resource type="FontFile" path="res://assets/ui/fonts/display.ttf" id="1_base"]
+
+
+[resource]
+base_font = ExtResource("1_base")
+
+variation_opentype = {
+2003265652: 800
+}
+opentype_features = {
+1953396077: 1
+}
