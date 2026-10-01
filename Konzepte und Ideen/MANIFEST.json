@@ -1,0 +1,202 @@
+[
+  {
+    "Path": "AGENTS.md",
+    "Bytes": 679,
+    "SHA256": "D4481D432E1A30E4980F70712CC75C002A053E4521BB09FACB3C32E8B76D0D18"
+  },
+  {
+    "Path": "README.md",
+    "Bytes": 1961,
+    "SHA256": "64FDC1797D981169C610FCD8B681DB3066FAA456D9F0A96F7CD49F5AE41EA6D4"
+  },
+  {
+    "Path": "Branding\\horde-hunters-app-icon-boxer.png",
+    "Bytes": 1955025,
+    "SHA256": "DA92365EF82253D3429E1575D1B678EFF543DA313F69818F71189C8CB7BF2128"
+  },
+  {
+    "Path": "Branding\\horde-hunters-app-icon-hh.png",
+    "Bytes": 1419190,
+    "SHA256": "D0BF4E14C9F0ACA521529F894D69E291B008733DDA27CE7CA6E0616093CD39B5"
+  },
+  {
+    "Path": "Branding\\horde-hunters-key-art.png",
+    "Bytes": 2269065,
+    "SHA256": "01093018D70EEB434DF81610A8EE27F7FA8006E0CE4D172C418C7AD086486DD6"
+  },
+  {
+    "Path": "Branding\\horde-hunters-logo.png",
+    "Bytes": 1542767,
+    "SHA256": "0A329980DB0B5EB750757FB5B6EE598F73721FC528B2106D6EF6D637ACD81983"
+  },
+  {
+    "Path": "Branding\\PROMPTS.md",
+    "Bytes": 6357,
+    "SHA256": "BEA7CB07604D007CA80B8D4FFFCEF5D57E67C3D55B3135ABF5073123C5F9D3F0"
+  },
+  {
+    "Path": "Charakterkonzepte\\01_frontier_gameplay.png",
+    "Bytes": 2875999,
+    "SHA256": "1EC7BC6C6D54F99786FEF5C3E8476FC7FB0404DB53621B083560D6149B949878"
+  },
+  {
+    "Path": "Charakterkonzepte\\02_dusk_hunters_gameplay.png",
+    "Bytes": 2831960,
+    "SHA256": "A5EF08FE96DBE1FB9F6FD598B9C16942AE2D23B6430A670987537C83BCC638B4"
+  },
+  {
+    "Path": "Charakterkonzepte\\03_salvage_crew_gameplay.png",
+    "Bytes": 3038114,
+    "SHA256": "72E5548DC06C3D2007DAD413C55CE55028D5262E49A2BCCC9AD99D8EB39575B3"
+  },
+  {
+    "Path": "Charakterkonzepte\\04_hero_selection.png",
+    "Bytes": 2394970,
+    "SHA256": "716E5C6ADC37B9567A5399D25D43D817B11FEB1C4EBA21380FE86954E26E4855"
+  },
+  {
+    "Path": "Charakterkonzepte\\PROMPTS.md",
+    "Bytes": 11015,
+    "SHA256": "26C587F472AFEA582D83519DCFF45DA0269461CFFA5235D68B6EC4E65073329A"
+  },
+  {
+    "Path": "Charakterkonzepte\\README.md",
+    "Bytes": 7240,
+    "SHA256": "9F9EC4EED811D73D310A2FC69643F502D99B46F5228E5D886A8A09909FA8B115"
+  },
+  {
+    "Path": "Charakterkonzepte\\V2_Stylized_Heroes\\01_roster.png",
+    "Bytes": 1838022,
+    "SHA256": "18898CE7437B9D5E863034DB313258B8D49395465F4AA4E90A4422C89A0557CA"
+  },
+  {
+    "Path": "Charakterkonzepte\\V2_Stylized_Heroes\\02_rook_melee.png",
+    "Bytes": 2041771,
+    "SHA256": "FE77FDCB64484320BB6833908F9E4FDB038676501F59114A2C29C426723E3CEC"
+  },
+  {
+    "Path": "Charakterkonzepte\\V2_Stylized_Heroes\\03_vexa_ranged.png",
+    "Bytes": 1856528,
+    "SHA256": "BB3EA4F23794DC3E721FC58876B3B228D8C4D27AF3035834C11A39884F80939F"
+  },
+  {
+    "Path": "Charakterkonzepte\\V2_Stylized_Heroes\\04_vexa_selection.png",
+    "Bytes": 1661585,
+    "SHA256": "C348B72002360151716CE0FD90B69EE268F7FE7EEDDFB89E3E8B6BBEBBF3DE4D"
+  },
+  {
+    "Path": "Charakterkonzepte\\V2_Stylized_Heroes\\PROMPTS.md",
+    "Bytes": 17200,
+    "SHA256": "9A11958642D7860A2517D78DACAEB94735EC9DBB4873BF53FD367DA0E473B7E1"
+  },
+  {
+    "Path": "Charakterkonzepte\\V2_Stylized_Heroes\\README.md",
+    "Bytes": 10404,
+    "SHA256": "DC70AB5DE5378780C4D015737DF26B05F85EEE60FE1CE71E96DA31FF4C740A0E"
+  },
+  {
+    "Path": "Charakterkonzepte\\V2_Stylized_Heroes\\References\\reference_character_render.webp",
+    "Bytes": 92166,
+    "SHA256": "4D108273E11D9CC361737EB2746F6BCDFBCC13A609FD34A0A806093F26491F95"
+  },
+  {
+    "Path": "Charakterkonzepte\\V2_Stylized_Heroes\\References\\reference_character_shapes.png",
+    "Bytes": 1142517,
+    "SHA256": "ACAF7C48E9C6E0B26F4EA53B80AB7F5B697EEC1BCFD886D5D498990773907319"
+  },
+  {
+    "Path": "Charakterkonzepte\\V2_Stylized_Heroes\\References\\reference_gameplay.jpg",
+    "Bytes": 385170,
+    "SHA256": "99E8EA30EBFDE90C743D25BE58F6FE237CA0DD55F18534B6C9580465CA496BBA"
+  },
+  {
+    "Path": "Charakterkonzepte\\V3_Individual_Characters\\01_cinder.png",
+    "Bytes": 1781652,
+    "SHA256": "279F63E23394D0866695A074F7781554311E6B283F31E4CD6E0D4BEADC393BA6"
+  },
+  {
+    "Path": "Charakterkonzepte\\V3_Individual_Characters\\02_brine.png",
+    "Bytes": 1744292,
+    "SHA256": "2E89D8B02FA8B0F26CA9AE949DD78CAB3840A4A0840283371A97131AD92EE2E8"
+  },
+  {
+    "Path": "Charakterkonzepte\\V3_Individual_Characters\\03_vesper.png",
+    "Bytes": 1606035,
+    "SHA256": "DA36AE061E454B80176013DE85D68421A6CF854ABAE78B90CB2717A4C81CFE37"
+  },
+  {
+    "Path": "Charakterkonzepte\\V3_Individual_Characters\\04_rivet.png",
+    "Bytes": 1782527,
+    "SHA256": "C93BDDE509E3937CE7ED54F56797C65F882B39B801AE1E0974580F4FDB5FDDBB"
+  },
+  {
+    "Path": "Charakterkonzepte\\V3_Individual_Characters\\05_ivara.png",
+    "Bytes": 1744612,
+    "SHA256": "4C9A9CAB2C55CCF36BD3FBA0E60EC23CFB4EAD24B5C4694A38E78B095991688B"
+  },
+  {
+    "Path": "Charakterkonzepte\\V3_Individual_Characters\\06_juno.png",
+    "Bytes": 1792215,
+    "SHA256": "71AF4C33A1EBA49E37F02B9527546191C87D291960508C0C99424D824EC5EE68"
+  },
+  {
+    "Path": "Charakterkonzepte\\V3_Individual_Characters\\PROMPTS.md",
+    "Bytes": 22137,
+    "SHA256": "89DF15F4011FD60FD80366B358D01696536C9D0DE74051CF6C43C964A0D55587"
+  },
+  {
+    "Path": "Charakterkonzepte\\V3_Individual_Characters\\README.md",
+    "Bytes": 9377,
+    "SHA256": "01FB53A15AFD96CE97803FB9F8A1489E5E5C466D3E5ADE83C7CD1A4A3E0E4BFA"
+  },
+  {
+    "Path": "Charakterkonzepte\\V4_Character_Identity\\01_crash.png",
+    "Bytes": 1773201,
+    "SHA256": "CBE444DBC446D06B6B6059A0297C36205FE4FE0482AEDE24DCA4DBB0285E5479"
+  },
+  {
+    "Path": "Charakterkonzepte\\V4_Character_Identity\\02_gravel.png",
+    "Bytes": 1899737,
+    "SHA256": "7BD06208FB2C4FB9FF269E0AB02B2417D683467E1455A51CBA4D63A01426BC4B"
+  },
+  {
+    "Path": "Charakterkonzepte\\V4_Character_Identity\\03_saint_cash.png",
+    "Bytes": 1795623,
+    "SHA256": "872300E71C8D68B4AECA247516418B7230F23F9079F6C745752AB9943BEB8EF7"
+  },
+  {
+    "Path": "Charakterkonzepte\\V4_Character_Identity\\PROMPTS.md",
+    "Bytes": 8621,
+    "SHA256": "90CBCF15B902CBE1F5C5488814866EBFA5F911764626665CAAA7C7A9E5067D53"
+  },
+  {
+    "Path": "Charakterkonzepte\\V4_Character_Identity\\README.md",
+    "Bytes": 4466,
+    "SHA256": "F09A6448BF9991A46DB3DE560F419EEAC2FB8031188E8D1CF1E9AA56E4C6252F"
+  },
+  {
+    "Path": "Charakterkonzepte\\V5_Combat_Archetypes\\01_unarmed_boxer.png",
+    "Bytes": 1776273,
+    "SHA256": "A16EF09F68F56FC536B0958034F0D0D20B6809290887D352AF2767DB7CB52324"
+  },
+  {
+    "Path": "Charakterkonzepte\\V5_Combat_Archetypes\\02_energy_fighter.png",
+    "Bytes": 1748881,
+    "SHA256": "BB486EDD9A958A50E4920AD823C9F93126F7FC9760F50796DC52A9D1AE1AE6E4"
+  },
+  {
+    "Path": "Charakterkonzepte\\V5_Combat_Archetypes\\03_lightblade_fighter.png",
+    "Bytes": 1761168,
+    "SHA256": "01146A84CF9600A3B319EE0361629083ADBA0006BA36CC947526BA08B9BA93D1"
+  },
+  {
+    "Path": "Charakterkonzepte\\V5_Combat_Archetypes\\PROMPTS.md",
+    "Bytes": 7051,
+    "SHA256": "F6C447EED16F8FEE546A8D332CB2E79A15B3B9323F45161C344213E42F5ED336"
+  },
+  {
+    "Path": "Charakterkonzepte\\V5_Combat_Archetypes\\README.md",
+    "Bytes": 1592,
+    "SHA256": "E1B57789E809A456AD7E0D663D503871AEAFEFB97693F425F27DE4AAF56E27C0"
+  }
+]

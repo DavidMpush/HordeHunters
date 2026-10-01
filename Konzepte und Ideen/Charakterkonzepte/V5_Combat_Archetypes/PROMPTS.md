@@ -1,0 +1,35 @@
+# Prompts V5
+
+Eingebautes imagegen-Werkzeug; drei getrennte Generierungen; transparent_background: false.
+Bildreferenz: ../V2_Stylized_Heroes/01_roster.png.
+
+## 01_unarmed_boxer.png
+
+```text
+Use case: stylized-concept. Create ONE original playable hero full-body concept render, portrait 1024x1536.
+Reference image role: match ONLY its rendering style, compact proportions and broad sculpted shapes. Do not copy its characters. New character centered head to toe on a plain muted slate-blue studio background. No text, no logo, no watermark, no scenery, no second character, no panels.
+Style: polished compact cartoon 3D game character, approximately four heads tall, large head, hands and boots, exaggerated confident adult facial features, strong brows, sculpted hair as a few solid masses, broad matte color blocking, crisp simplified shading, strong silhouette at small mobile scale. Mature attitude, no baby face, no photoreal skin or fabrics, no excessive straps or tiny ornate details. Entire figure including effects and feet within frame with margin. Clear action-ready pose that reveals the body and communicates fighting style.
+Original design: invent face, costume, colors, pose and equipment. No likeness of any existing fictional character or celebrity, no borrowed emblems, franchise uniforms or signature attack poses. A strong familiar combat archetype, straightforward and readable.
+Subject: A hugely powerful UNARMED adult male boxer. Broad square torso, thick forearms and massive fists tightly wrapped in cream athletic bandages, stocky compact body. Warm tan skin, short dark cropped hair with one silver temple streak, broken broad nose, square jaw with very short stubble, calm almost bored confident expression. Sleeveless muted coral training hoodie with hood resting on his back, charcoal tank top, forest-green boxing shorts over short charcoal leggings, broad cream-and-charcoal boxing boots. No armor, no weapons, no cape. Both hands clenched in a believable boxing guard: one huge fist slightly extended forward, second close to chin, feet apart, body turned three-quarter. A few restrained translucent pale pressure arcs immediately around the leading fist show immense punch power without obscuring anatomy. He reads instantly as an overpowered boxer, no added gadgets or lore props.
+```
+
+## 02_energy_fighter.png
+
+```text
+Use case: stylized-concept. Create ONE original playable hero full-body concept render, portrait 1024x1536.
+Reference image role: match ONLY its rendering style, compact proportions and broad sculpted shapes. Do not copy its characters. New character centered head to toe on a plain muted slate-blue studio background. No text, no logo, no watermark, no scenery, no second character, no panels.
+Style: polished compact cartoon 3D game character, approximately four heads tall, large head, hands and boots, exaggerated confident adult facial features, strong brows, sculpted hair as a few solid masses, broad matte color blocking, crisp simplified shading, strong silhouette at small mobile scale. Mature attitude, no baby face, no photoreal skin or fabrics, no excessive straps or tiny ornate details. Entire figure including effects and feet within frame with margin. Clear action-ready pose that reveals the body and communicates fighting style.
+Original design: invent face, costume, colors, pose and equipment. No likeness of any existing fictional character or celebrity, no borrowed emblems, franchise uniforms or signature attack poses. A strong familiar combat archetype, straightforward and readable.
+Subject: An explosive ANIME ENERGY MARTIAL ARTIST, original adult male human. Athletic compact V-shaped body, medium warm brown skin, sharp strong eyebrows, fierce confident grin. Dark indigo hair sculpted into five chunky asymmetric upward spikes leaning diagonally, not a radial golden star shape. Sleeveless ivory cropped martial training jacket with wide teal side panels worn open over a plain charcoal fitted shirt, loose charcoal combat trousers with teal outer bands, chunky ivory shin-height boots, broad plum wrist wraps; no martial arts emblem, no orange outfit, no armor. Wide three-quarter fighting stance, one fist at his hip with a small vivid violet energy orb, other arm extended with OPEN palm projecting three small magenta-violet energy bolts along a short diagonal toward the viewer. Bright controlled violet aura rises in broad curved streaks behind shoulders, violet rim light without hiding face or clothing. His dark hair remains dark. Make the recognizable fantasy energy blasts and power-up aura the central visual, not a gun or machinery. No hands cupped together, no recognizable franchise attack pose.
+```
+
+## 03_lightblade_fighter.png
+
+```text
+Use case: stylized-concept. Create ONE original playable hero full-body concept render, portrait 1024x1536.
+Reference image role: match ONLY its rendering style, compact proportions and broad sculpted shapes. Do not copy its characters. New character centered head to toe on a plain muted slate-blue studio background. No text, no logo, no watermark, no scenery, no second character, no panels.
+Style: polished compact cartoon 3D game character, approximately four heads tall, large head, hands and boots, exaggerated confident adult facial features, strong brows, sculpted hair as a few solid masses, broad matte color blocking, crisp simplified shading, strong silhouette at small mobile scale. Mature attitude, no baby face, no photoreal skin or fabrics, no excessive straps or tiny ornate details. Entire figure including effects and feet within frame with margin. Clear action-ready pose that reveals the body and communicates fighting style.
+Original design: invent face, costume, colors, pose and equipment. No likeness of any existing fictional character or celebrity, no borrowed emblems, franchise uniforms or signature attack poses. A strong familiar combat archetype, straightforward and readable.
+Subject: A futuristic LIGHTBLADE DUELIST, original adult female human. Slender compact athletic body, medium olive skin, strong angular brows, cool composed adult expression. Short sculpted silver-white asymmetric hair with one dark navy undercut. Navy short hip-length coat with high structured collar and broad ivory shoulder panels over fitted charcoal lightweight segmented armor, aubergine trousers, simple navy boots. No hood, no robe, no monk tunic, no long cape. In both hands holds one glowing AMBER energy sword across her body at a diagonal: a visibly wide FLAT tapering sword blade with angular glowing edges and a translucent orange interior, a short chunky ivory-and-navy rectangular hilt with a small angular crossguard, not a cylindrical beam tube or familiar franchise handle. Actual complete sword fully visible, one clean short amber slash arc behind blade, no detached fragments. Calm practiced fencing stance three-quarter, shoulders relaxed, feet staggered, all anatomy clear. The immediate fantasy is skilled futuristic energy-sword combat, no guns, no extra magic props.
+```
+
