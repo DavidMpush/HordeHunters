@@ -65,3 +65,26 @@ Ziel: Der Nutzer spielt 3 Minuten Brann mit der Schrotflinte gegen Nahkampf-Hord
 - Suite grün; Prüfbilder gesichtet.
 - Leistung: 250 Gegner bei stabilen Frames (Desktop-Bench als Näherung).
 - **Handtest durch den Nutzer** (PC: F5; danach APK).
+
+## Schnittstellen (Teil A – Welt, umgesetzt)
+Dateien: `scripts/world/` (`arena.gd`, `map_explore.gd`, `map_layout.gd`, `arena_border.gd`, `wall_mesh.gd`, `flow_field.gd`, `biomes.gd`, `region_names.gd`, `map_beacons.gd`, `quality.gd`, `world_tuning.gd`), Shader unter `shaders/`, Requisiten unter `assets/gameplay/props/`. Stand der Optik = Mawlings `wip/etappe-34-37` (Prüfbilder farbgleich mit Mawlings `preview_walls_*`).
+
+**Szene `scenes/main.tscn`:** `Main` (`scripts/main.gd`) mit `Arena`, `Hero` (Node3D, Platzhalter-Kapsel als Kind `Placeholder`), `Camera3D`, `Sun`, `WorldEnvironment`.
+- `main.hero: Node3D`, `main.arena`, `main.camera`, `main.camera_jitter: Vector3` (Kamera-Ruck, ungeglättet), `main.start_world(seed: int, biome := "verdant_maw")` (Karte neu, Held auf Startpunkt, Kamera einrasten), `main.snap_camera()`.
+- `Main` läuft nach seinen Kindern (`process_priority = 100`): Held bewegt sich in seinem eigenen `_process`/`_physics_process`, `Main` ruft danach `arena.sync(hero.position)` und führt die Kamera nach.
+- WASD bewegt nur, solange `Hero` **kein Skript** hat. Teil B hängt `scripts/hero/hero.gd` an den Knoten `Hero` (oder ersetzt ihn durch eine gleichnamige Node3D) und löscht `Hero/Placeholder`; Gegner, Direktor, HUD kommen als weitere Kinder von `Main`.
+
+**Arena** (`scripts/world/arena.gd`, Kopfkommentar):
+- `sync(focus: Vector3) -> void` – Chunks, Flow-Field-Quelle, Durchsicht-Fenster folgen dem Fokus; `arena.focus` = letzter Fokus.
+- `resolve_motion(start: Vector3, motion: Vector3, radius: float) -> Vector3` – Kollision, gleitet an Wänden/Steinen, bleibt im Spielfeld; Treibsand und Flachufer bremsen.
+- `is_open(point: Vector3, radius: float) -> bool`
+- `safe_spawn(point: Vector3, radius: float) -> Vector3`
+- `spawn_point_near(center: Vector3, distance: float, angle: float, clearance: float) -> Vector3` – `Vector3.INF`, wenn nichts passt (oder Seed 0).
+- `spawn_points(count: int) -> Array[Vector3]` – Startpunkt(e).
+- `playable_rect() -> Rect2`, `map_center() -> Vector3`, `wall_distance(point) -> float`
+- `set_seed(seed: int)` (0 = klassische offene Karte), `has_layout() -> bool`, `set_biome(id: String, staggered := false)` (`verdant_maw`, `glutsumpf`, `duerrschlund`)
+- `flow_direction(from: Vector3, radius := 0.6) -> Vector3` – Einheitsrichtung zum aktuellen Fokus: gerade bei freier Sicht (≤ 14 m), sonst über das gemeinsame Flow-Field um Wände herum; Steine werden umgangen. `ZERO` am Fokus.
+- `flow_distance(from: Vector3) -> float` (Laufweg, `INF` unbekannt), `steer_direction(from, target, radius)` für beliebige Ziele.
+- Für Tests/Ladebild: `finish_rebuild()`, `finish_flow(point)`; `chunk_budget` (Main: 1 Chunk pro Frame).
+
+**Tests:** `tests/world.gd` (in `tools/test.ps1`): Seed deterministisch, Gleiten an Wänden, `safe_spawn`/`spawn_point_near` offen, `flow_direction` führt um Wände zum Ziel, alle drei Biome bauen. Prüfbilder: `tests/capture_world.gd` → `previews/preview_world_*.png` (Start, Felsrücken, Dickicht, Wald, See, Kartenrand, Glutsumpf-Rücken und Lavasee, Wüsten-Klippen und Kakteen).

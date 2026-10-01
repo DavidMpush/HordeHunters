@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = 'Continue'
 $godotExe = 'C:\Users\vrxby\Documents\Codex\Godot\Godot_v4.7.2-stable_win64_console.exe'
 $projectDir = Split-Path -Parent $PSScriptRoot
-$tests = @()
+$tests = @('world')
 $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 if ($Only.Count -gt 0) { $tests = $tests | Where-Object { $Only -contains $_ } }
 
